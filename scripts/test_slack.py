@@ -316,6 +316,19 @@ def test_auth_remove_clears_default_when_removing_default():
         shutil.rmtree(tmp)
 
 
+def test_auth_default_errors_on_unknown_workspace():
+    print("\n[auth] default rejects unknown workspace")
+    tmp = make_tmp()
+    try:
+        rc, _, err = run("auth", "default", "--workspace", "ghost",
+                         env=make_env(tmp))
+        case("returns 5", rc == 5)
+        case("error mentions configured workspaces",
+             "configured" in err.lower() or "ghost" in err, err)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
