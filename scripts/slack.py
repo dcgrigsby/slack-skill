@@ -56,6 +56,61 @@ def redact(text: str) -> str:
     return TOKEN_RE.sub(lambda m: mask_token(m.group(0)), text)
 
 
+import json
+import os
+from pathlib import Path
+
+# ---- config -----------------------------------------------------------------
+
+
+def config_path() -> Path:
+    """Resolve the config file path, honoring SLACK_SKILL_CONFIG for tests."""
+    env = os.environ.get("SLACK_SKILL_CONFIG")
+    if env:
+        return Path(env)
+    home = Path(os.path.expanduser("~"))
+    return home / ".config" / "slack-skill" / "config.json"
+
+
+def load_config() -> dict:
+    """Return the parsed config, or an empty skeleton if the file is missing."""
+    p = config_path()
+    if not p.exists():
+        return {"workspaces": {}}
+    try:
+        data = json.loads(p.read_text())
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"config error: {p} is not valid JSON: {e}")
+    data.setdefault("workspaces", {})
+    return data
+
+
+def save_config(cfg: dict) -> None:
+    """Atomically write cfg to the config path with mode 0700/0600."""
+    p = config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(p.parent, 0o700)
+    except OSError:
+        pass
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(cfg, f, indent=2, sort_keys=True)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, p)
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+
+
 import argparse
 import sys
 

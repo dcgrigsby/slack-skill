@@ -124,6 +124,63 @@ def test_token_mask_in_auth_list():
         shutil.rmtree(tmp)
 
 
+# --------------------------------------------------------------------- config
+
+
+def test_config_round_trip_via_auth_add_list():
+    print("\n[config] auth add + auth list round trip")
+    tmp = make_tmp()
+    try:
+        rc, _, err = run("auth", "add", "--workspace", "work", "--token", "xoxp-1-abc",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {}, "body":
+                              {"ok": True, "user_id": "U1", "user": "alice",
+                               "team_id": "T1", "team": "Acme"}},
+                         ]))
+        case("auth add returns 0", rc == 0, f"rc={rc} stderr={err!r}")
+        cfg_path = tmp / "config.json"
+        case("config.json exists", cfg_path.exists())
+        cfg = json.loads(cfg_path.read_text())
+        case("default set to 'work'", cfg.get("default") == "work", json.dumps(cfg))
+        case("workspace token stored", cfg["workspaces"]["work"]["token"] == "xoxp-1-abc")
+        case("workspace metadata stored",
+             cfg["workspaces"]["work"].get("team_name") == "Acme")
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_config_file_mode_is_0600():
+    print("\n[config] file mode is 0600")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        cfg_path = tmp / "config.json"
+        mode = cfg_path.stat().st_mode & 0o777
+        case("mode is 0600", mode == 0o600, f"got {oct(mode)}")
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_config_atomic_write_no_tmp_left_behind():
+    print("\n[config] atomic write removes .tmp")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        case("no .tmp file", not (tmp / "config.json.tmp").exists())
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
