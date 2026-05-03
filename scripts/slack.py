@@ -21,6 +21,41 @@ Exit codes:
 
 from __future__ import annotations
 
+import re
+
+# ---- token utilities --------------------------------------------------------
+
+TOKEN_RE = re.compile(r"xox[abporsuxd]-[A-Za-z0-9-]+")
+
+
+def validate_user_token(token: str) -> None:
+    """Raise ValueError unless token has the User OAuth Token shape."""
+    if not token:
+        raise ValueError("token is empty")
+    if token.startswith("xoxb-"):
+        raise ValueError(
+            "this skill needs a User OAuth Token (xoxp-...), not a Bot Token (xoxb-...). "
+            "Re-check the OAuth & Permissions page; the User OAuth Token is at the top."
+        )
+    if not token.startswith("xoxp-"):
+        raise ValueError(
+            f"unrecognized token prefix: {token[:5]}... "
+            "expected xoxp-... (User OAuth Token)."
+        )
+
+
+def mask_token(token: str) -> str:
+    """Return a redacted form of a single token value."""
+    if not token or len(token) < 6:
+        return "***"
+    return f"{token[:5]}***...***"
+
+
+def redact(text: str) -> str:
+    """Replace any xox*-... substring inside text with a masked form."""
+    return TOKEN_RE.sub(lambda m: mask_token(m.group(0)), text)
+
+
 import argparse
 import sys
 

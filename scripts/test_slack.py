@@ -75,6 +75,55 @@ def test_help_prints_and_exits_2_with_no_args():
     case("prints usage on stderr", "usage:" in err.lower(), err[:200])
 
 
+# ---------------------------------------------------------------- token utils
+
+
+def test_token_validate_accepts_xoxp():
+    print("\n[token] xoxp- prefix accepted")
+    tmp = make_tmp()
+    try:
+        rc, _, err = run("auth", "add", "--workspace", "w", "--token", "xoxp-1-abc",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {}, "body":
+                              {"ok": True, "user_id": "U1", "user": "alice",
+                               "team_id": "T1", "team": "Acme"}},
+                         ]))
+        case("xoxp- accepted", rc == 0, f"rc={rc} stderr={err!r}")
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_token_validate_rejects_xoxb():
+    print("\n[token] xoxb- prefix rejected")
+    tmp = make_tmp()
+    try:
+        rc, _, err = run("auth", "add", "--workspace", "w", "--token", "xoxb-bot-abc",
+                         env=make_env(tmp))
+        case("returns 5", rc == 5, f"rc={rc}")
+        case("explains User OAuth Token", "user oauth token" in err.lower() or "xoxp" in err.lower(),
+             err[:200])
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_token_mask_in_auth_list():
+    print("\n[token] auth list masks tokens")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-secretvalue",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U1", "user": "alice",
+                  "team_id": "T1", "team": "Acme"}},
+            ]))
+        rc, out, _ = run("auth", "list", env=make_env(tmp))
+        case("returns 0", rc == 0)
+        case("token not visible", "secretvalue" not in out, out)
+        case("masked form shown", "xoxp-***" in out or "xoxp-..." in out, out)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
