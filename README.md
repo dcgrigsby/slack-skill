@@ -78,7 +78,7 @@ by a Slack app you control. You only do this once per workspace.
 1. Go to <https://api.slack.com/apps> and click **Create New App** →
    **From an app manifest**.
 2. Pick your workspace.
-3. Paste the contents of [`docs/slack-app-manifest.yaml`](docs/slack-app-manifest.yaml).
+3. Switch the editor tab to **JSON** and paste the contents of [`docs/slack-app-manifest.json`](docs/slack-app-manifest.json).
 4. Review the scopes Slack shows you, then click **Create**.
 5. On the app's page, click **Install to Workspace** → **Allow**.
 6. Open **OAuth & Permissions** in the left sidebar and copy the
@@ -93,7 +93,7 @@ If you'd rather configure the app by hand:
 2. Open **OAuth & Permissions** → **Scopes** → **User Token Scopes**
    (NOT Bot Token Scopes).
 3. Add every scope listed in
-   [`docs/slack-app-manifest.yaml`](docs/slack-app-manifest.yaml) under
+   [`docs/slack-app-manifest.json`](docs/slack-app-manifest.json) under
    `oauth_config.scopes.user`. The manifest is the authoritative scope
    list — adding scopes by hand is mechanical, just keep the two in
    sync.

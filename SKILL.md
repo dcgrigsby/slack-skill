@@ -151,12 +151,12 @@ Tell the user:
 1. Visit https://api.slack.com/apps?new_app=1 in a browser.
 2. Click **From an app manifest**.
 3. Pick the workspace they want to integrate (e.g. their work Slack).
-4. When prompted for the manifest, paste the contents of `docs/slack-app-manifest.yaml` from this skill. (Open that file and read it to them, or have them open it themselves.)
+4. When prompted for the manifest, switch the editor tab to **JSON** and paste the contents of `docs/slack-app-manifest.json` from this skill. (Open that file and read it to them, or have them open it themselves.)
 5. Click **Next**, review the scopes, then **Create**.
 6. On the app's **Basic Information** page, click **Install to Workspace**, then **Allow** on the OAuth confirmation screen.
 7. On the **OAuth & Permissions** page, copy the **User OAuth Token** (it starts with `xoxp-`).
 
-The manifest at `docs/slack-app-manifest.yaml` is preconfigured with the user scopes this skill needs (channel and message reads, chat write, reactions, search, etc.). Don't tell the user to add scopes manually — the manifest does it.
+The manifest at `docs/slack-app-manifest.json` is preconfigured with the user scopes this skill needs (channel and message reads, chat write, reactions, search, etc.). Don't tell the user to add scopes manually — the manifest does it.
 
 ### Step 3 — User pastes the token into chat
 
@@ -176,7 +176,7 @@ Pick a short, memorable workspace name (`work`, `personal`, `acme`, etc.). The u
 python3 scripts/slack.py auth test --workspace work
 ```
 
-This calls Slack's `auth.test` endpoint and should return the authenticated user and team. If it returns `invalid_auth`, the token was pasted incorrectly or has been revoked — re-do step 2's last sub-step and try again. If it returns `missing_scope`, the manifest in `docs/slack-app-manifest.yaml` may be out of sync with what this skill needs — read that file and reinstall.
+This calls Slack's `auth.test` endpoint and should return the authenticated user and team. If it returns `invalid_auth`, the token was pasted incorrectly or has been revoked — re-do step 2's last sub-step and try again. If it returns `missing_scope`, the manifest in `docs/slack-app-manifest.json` may be out of sync with what this skill needs — read that file and reinstall.
 
 If the user has more than one Slack workspace they want to use, repeat steps 2–5 for each, with a different `--workspace <name>` per workspace.
 
@@ -390,7 +390,7 @@ Slack User Tokens act as the user. Treat them and write operations accordingly.
 
 | Error | What to do |
 |---|---|
-| `missing_scope` | The token doesn't have a scope this method requires. The CLI's stderr hint shows the exact scope. Have the user reinstall the app from the manifest in `docs/slack-app-manifest.yaml` — the manifest may need updating. |
+| `missing_scope` | The token doesn't have a scope this method requires. The CLI's stderr hint shows the exact scope. Have the user reinstall the app from the manifest in `docs/slack-app-manifest.json` — the manifest may need updating. |
 | `channel_not_found` | The channel ID is wrong, the channel was archived, or the user isn't in it. Re-resolve via `users.conversations` (pattern 1). Don't guess channel IDs from names. |
 | `not_in_channel` | For public channels, call `conversations.join` first, then retry. For private channels, the user must be invited by a member — the skill cannot self-invite. |
 | `invalid_auth` | The token is bad or no longer accepted. Run `auth test` to confirm, then re-do the OAuth install in the Slack app and `auth add` the new token. |
