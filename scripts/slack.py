@@ -385,7 +385,41 @@ def cmd_call(args) -> int:
 
 
 def cmd_auth_add(args) -> int:
-    raise NotImplementedError("Task 9")
+    try:
+        validate_user_token(args.token)
+    except ValueError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 5
+
+    # Verify the token works before persisting it.
+    try:
+        status, _hdrs, body = http_post("auth.test", {}, args.token)
+    except TransportError as e:
+        print(f"transport error during auth.test: {redact(str(e))}", file=sys.stderr)
+        return 3
+
+    if not body.get("ok", False):
+        err = body.get("error", "unknown")
+        print(f"auth.test failed: {err} (token not saved)", file=sys.stderr)
+        return 5
+
+    cfg = load_config()
+    cfg.setdefault("workspaces", {})
+    entry = {
+        "token": args.token,
+        "team_id": body.get("team_id", ""),
+        "team_name": body.get("team", ""),
+        "user_id": body.get("user_id", ""),
+        "user_name": body.get("user", ""),
+    }
+    cfg["workspaces"][args.workspace] = entry
+    if not cfg.get("default"):
+        cfg["default"] = args.workspace
+
+    save_config(cfg)
+    print(f"added workspace {args.workspace!r} (team={entry['team_name']!r}, "
+          f"user={entry['user_name']!r})", file=sys.stderr)
+    return 0
 
 
 def cmd_auth_list(args) -> int:
