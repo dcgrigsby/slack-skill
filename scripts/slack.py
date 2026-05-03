@@ -140,13 +140,19 @@ def resolve_token(cfg: dict, workspace_arg: str | None) -> tuple[str, str]:
             "\"slack.py auth default --workspace <name>\""
         )
     entry = workspaces.get(name)
-    if not entry:
+    if entry is None:
         raise ConfigError(
             f"workspace {name!r} not found\n"
             f"configured workspaces: {', '.join(sorted(workspaces)) or '(none)'}\n"
             "hint: run \"slack.py auth add --workspace " + name + " --token xoxp-...\""
         )
-    return name, entry["token"]
+    token = entry.get("token")
+    if not token:
+        raise ConfigError(
+            f"workspace {name!r} has no token (config may be corrupted)\n"
+            "hint: run \"slack.py auth add --workspace " + name + " --token xoxp-...\""
+        )
+    return name, token
 
 
 import time
