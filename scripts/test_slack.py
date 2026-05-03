@@ -329,6 +329,31 @@ def test_auth_default_errors_on_unknown_workspace():
         shutil.rmtree(tmp)
 
 
+def test_auth_test_reports_scopes_from_header():
+    print("\n[auth] test reports scopes from x-oauth-scopes header")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "alice",
+                  "team_id": "T", "team": "Acme"}},
+            ]))
+        rc, out, err = run("auth", "test", "--workspace", "w",
+                           env=make_env(tmp, responses=[
+                               {"status": 200,
+                                "headers": {"x-oauth-scopes": "channels:read,chat:write,users:read"},
+                                "body": {"ok": True, "user_id": "U", "user": "alice",
+                                         "team_id": "T", "team": "Acme"}},
+                           ]))
+        case("returns 0", rc == 0, err)
+        combined = out + err
+        case("mentions channels:read", "channels:read" in combined, combined)
+        case("mentions team", "Acme" in combined, combined)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

@@ -469,7 +469,33 @@ def cmd_auth_default(args) -> int:
 
 
 def cmd_auth_test(args) -> int:
-    raise NotImplementedError("Task 13")
+    cfg = load_config()
+    workspaces = cfg.get("workspaces", {})
+    if not workspaces:
+        print("(no workspaces configured)", file=sys.stderr)
+        return 5
+    targets = [args.workspace] if args.workspace else sorted(workspaces)
+    failures = 0
+    for name in targets:
+        entry = workspaces.get(name)
+        if not entry:
+            print(f"FAIL  {name}  (not configured)")
+            failures += 1
+            continue
+        try:
+            _status, hdrs, body = http_post("auth.test", {}, entry["token"])
+        except TransportError as e:
+            print(f"FAIL  {name}  transport: {redact(str(e))}")
+            failures += 1
+            continue
+        if not body.get("ok", False):
+            print(f"FAIL  {name}  {body.get('error', 'unknown')}")
+            failures += 1
+            continue
+        scopes = hdrs.get("x-oauth-scopes", "?")
+        print(f"OK    {name}  team={body.get('team', '?')}  "
+              f"user={body.get('user', '?')}  scopes={scopes}")
+    return 1 if failures else 0
 
 
 def cmd_doctor(args) -> int:
