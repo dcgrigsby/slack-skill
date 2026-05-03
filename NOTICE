@@ -1,0 +1,67 @@
+slack-skill
+Copyright 2026 Dan Grigsby
+
+CRITICAL SAFETY WARNING — PLEASE READ BEFORE USE
+
+This skill gives an AI agent (Claude or any skill-aware assistant) the
+ability to read, send, edit, delete, and react to messages on your
+behalf in any Slack workspace whose User OAuth Token you grant it. The
+agent acts AS YOU — every API call carries your identity. There is NO
+sandboxing and NO per-call confirmation; the only safeguards are
+instructions in the skill telling the agent to confirm sensitive
+actions before performing them, which is enforcement by convention,
+not by mechanism.
+
+Potential consequences of misuse include but are not limited to:
+- Sending unintended messages to colleagues, channels, or DMs under
+  your name and identity
+- Posting confidential, sensitive, or embarrassing content to the
+  wrong audience
+- Permanent deletion or irreversible editing of messages
+- Adding or removing reactions on messages, visible to all members
+- Marking channels or DMs as read, hiding genuinely unread items
+- Reading and exfiltrating private channel history, DMs, and search
+  results that the agent then summarizes, stores, or forwards
+- Triggering notifications, mentions, and broadcasts to large groups
+- Violating workplace acceptable-use policies, NDAs, or applicable
+  law through agent-driven actions taken in your name
+
+Risks specific to AI-driven use:
+- An agent may misinterpret a request and send the wrong message to
+  the wrong channel, person, or workspace
+- A prompt-injection payload reaching the agent — embedded in message
+  content, search results, channel topics, file contents, or pasted
+  material — could direct it to send, delete, or exfiltrate messages
+- A hallucinated channel name, user ID, or timestamp may produce
+  unintended writes to a different conversation
+- The agent acting under your User OAuth Token cannot be distinguished
+  by Slack or your colleagues from actions you took yourself
+- Audit logs (where available) attribute the action to YOU, not to
+  the agent
+
+Recovery expectations:
+- Slack message editing and deletion is auditable to administrators
+  but not silently reversible — recipients see edit and delete
+  indicators, and may have already read or quoted the original
+- Workspace retention settings determine whether deleted messages
+  remain recoverable by administrators; the skill itself maintains no
+  backups
+- Reactions, read state, and pin/star/bookmark changes have no undo
+  beyond manually reversing them
+
+By using this software, you acknowledge that:
+1. You understand the risks described above
+2. You accept full responsibility for any actions taken on your
+   behalf via this skill, including any resulting damage,
+   embarrassment, policy violation, or legal consequence
+3. You have authority to grant agent access to the Slack workspaces
+   whose tokens you configure, and that doing so does not violate
+   any agreement, policy, or law that applies to you or those
+   workspaces
+4. The authors and contributors provide NO WARRANTY of any kind
+5. The authors and contributors accept NO LIABILITY for any damages,
+   reputational harm, policy violations, or legal consequences
+   arising from use of this software
+
+This notice must be preserved in all copies or substantial portions
+of the software, per the Apache License, Version 2.0.
