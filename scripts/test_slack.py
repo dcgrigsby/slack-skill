@@ -410,6 +410,95 @@ def test_call_all_respects_limit():
         shutil.rmtree(tmp)
 
 
+def test_call_all_page_based_merges_pages():
+    """Page-based pagination (paging.pages / paging.page) — regression guard
+    for the silent-truncate-to-page-1 bug fixed in commit 2d5a07d."""
+    print("\n[paginate] --all merges page-based responses (paging.pages)")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "files.list", "--workspace", "w", "--all",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True,
+                                         "files": [{"id": "F1"}, {"id": "F2"}],
+                                         "paging": {"page": 1, "pages": 2,
+                                                    "count": 2, "total": 3}}},
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True,
+                                         "files": [{"id": "F3"}],
+                                         "paging": {"page": 2, "pages": 2,
+                                                    "count": 1, "total": 3}}},
+                           ]))
+        case("returns 0", rc == 0, err)
+        body = json.loads(out)
+        case("has items", "items" in body, out)
+        case("merged 3 files across 2 pages",
+             len(body.get("items", [])) == 3, out)
+        case("page_count is 2", body.get("page_count") == 2, out)
+        case("preserved item identity",
+             [it.get("id") for it in body.get("items", [])] == ["F1", "F2", "F3"],
+             out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ----------------------------------------------------------------------- doctor
+
+
+def test_doctor_reports_ok_for_healthy_workspace():
+    print("\n[doctor] OK lines for python, config mode, and auth.test")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("doctor",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True}},
+                           ]))
+        case("returns 0", rc == 0, f"rc={rc} stderr={err!r}")
+        case("python OK line", "OK    python" in out, out)
+        case("config mode 0600 OK line",
+             "OK    config" in out and "0600" in out, out)
+        case("workspace auth.test OK line",
+             "OK    w  auth.test" in out, out)
+        case("no FAIL lines", "FAIL" not in out, out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_doctor_reports_failure_on_auth_test_error():
+    print("\n[doctor] returns 1 and surfaces error when auth.test fails")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, _ = run("doctor",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "token_revoked"}},
+                         ]))
+        case("returns 1", rc == 1, f"rc={rc}")
+        case("FAIL line names workspace and error",
+             "FAIL  w  token_revoked" in out, out)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # -------------------------------------------------------------------- resolve
 
 
