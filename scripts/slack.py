@@ -25,7 +25,7 @@ import re
 
 # ---- token utilities --------------------------------------------------------
 
-TOKEN_RE = re.compile(r"xox[abporsuxd]-[A-Za-z0-9-]+")
+TOKEN_RE = re.compile(r"(?:xox[a-z]|xapp)-[A-Za-z0-9-]+")
 
 
 def validate_user_token(token: str) -> None:
