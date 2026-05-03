@@ -410,6 +410,62 @@ def test_call_all_respects_limit():
         shutil.rmtree(tmp)
 
 
+# -------------------------------------------------------------------- resolve
+
+
+def test_resolve_expands_user_label_inline():
+    """<@U|alice> uses the inline label without an API call."""
+    print("\n[resolve] inline user label")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, _ = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C1"}', "--resolve",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "messages": [
+                                  {"text": "hi <@U07ABC|alice>"}]}},
+                         ]))
+        case("returns 0", rc == 0)
+        body = json.loads(out)
+        text = body["messages"][0]["text"]
+        case("expanded to @alice", "@alice" in text and "<@" not in text, text)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_resolve_falls_back_on_lookup_failure():
+    """Lookup failure → readable @U07ABC, rest of message intact."""
+    print("\n[resolve] fallback on users.info failure")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, _ = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C1"}', "--resolve",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "messages": [{"text": "hi <@U07ABC>"}]}},
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "user_not_found"}},
+                         ]))
+        case("returns 0", rc == 0)
+        body = json.loads(out)
+        text = body["messages"][0]["text"]
+        case("fell back to @U07ABC", "@U07ABC" in text, text)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

@@ -389,6 +389,102 @@ def paginate(method: str, params: dict, token: str, *,
     return {"ok": True, "items": items, "page_count": page_count}
 
 
+# ---- entity-ref resolver ----------------------------------------------------
+
+
+# Slack guarantees these are balanced and contain no nested < or >.
+ENTITY_RE = re.compile(r"<([^<>]+)>")
+
+
+class Resolver:
+    """Per-invocation cache for users.info / conversations.info lookups."""
+
+    def __init__(self, token: str, *, debug_log=None):
+        self.token = token
+        self.debug_log = debug_log
+        self.users: dict[str, str] = {}     # U-id → display name (or fallback)
+        self.channels: dict[str, str] = {}  # C-id → channel name (or fallback)
+
+    def user_name(self, uid: str) -> str:
+        if uid in self.users:
+            return self.users[uid]
+        try:
+            _s, _h, body = http_post("users.info", {"user": uid}, self.token,
+                                      debug_log=self.debug_log)
+            if body.get("ok"):
+                profile = body.get("user", {}).get("profile", {})
+                name = (profile.get("display_name")
+                        or profile.get("real_name")
+                        or uid)
+                self.users[uid] = name
+                return name
+        except (TransportError, SlackAPIError):
+            pass
+        self.users[uid] = uid  # fallback (cached so we don't retry)
+        return uid
+
+    def channel_name(self, cid: str) -> str:
+        if cid in self.channels:
+            return self.channels[cid]
+        try:
+            _s, _h, body = http_post("conversations.info", {"channel": cid},
+                                      self.token, debug_log=self.debug_log)
+            if body.get("ok"):
+                ch = body.get("channel", {})
+                if ch.get("is_im") and ch.get("user"):
+                    name = self.user_name(ch["user"])
+                else:
+                    name = ch.get("name") or cid
+                self.channels[cid] = name
+                return name
+        except (TransportError, SlackAPIError):
+            pass
+        self.channels[cid] = cid
+        return cid
+
+    def expand(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            inner = m.group(1)
+            label = ""
+            if "|" in inner:
+                inner, label = inner.split("|", 1)
+            if not inner:
+                return m.group(0)
+            head = inner[0]
+            rest = inner[1:]
+            if head == "@":
+                if label:
+                    return "@" + label
+                return "@" + self.user_name(rest)
+            if head == "#":
+                if label:
+                    return "#" + label
+                return "#" + self.channel_name(rest)
+            if head == "!":
+                if label:
+                    # !subteam, !date, !command with explicit label.
+                    return label
+                return "@" + rest  # bare broadcast: !here, !channel, !everyone
+            # URL or mailto.
+            if label:
+                return label
+            if inner.startswith("mailto:"):
+                return inner[len("mailto:"):]
+            return inner
+        return ENTITY_RE.sub(repl, text)
+
+
+def walk_and_resolve(obj, resolver: Resolver):
+    """Recursively expand entity refs in any string field."""
+    if isinstance(obj, str):
+        return resolver.expand(obj)
+    if isinstance(obj, list):
+        return [walk_and_resolve(x, resolver) for x in obj]
+    if isinstance(obj, dict):
+        return {k: walk_and_resolve(v, resolver) for k, v in obj.items()}
+    return obj
+
+
 import argparse
 
 # ---- argparse + dispatch ---------------------------------------------------
@@ -427,6 +523,10 @@ def cmd_call(args) -> int:
     except ValueError as e:
         print(f"--all: {e}", file=sys.stderr)
         return 2
+
+    if args.resolve and body.get("ok"):
+        resolver = Resolver(token, debug_log=debug)
+        body = walk_and_resolve(body, resolver)
 
     print(json.dumps(body, separators=(",", ":")))
     if not body.get("ok", False):
