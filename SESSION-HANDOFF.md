@@ -5,17 +5,26 @@ multi-phase session: brainstorming → spec → implementation plan → 27-task
 subagent-driven implementation → final whole-implementation review with
 fixes. A fresh session can read this top-to-bottom and pick up.
 
+A second session (later same day) ran the skill-creator loop on top:
+description optimization, two test additions, manifest reformat, and a
+live-eval pass against a real Slack workspace. See **Session 2 update**
+below for diffs.
+
 ---
 
-## TL;DR
+## TL;DR (current)
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit at handoff: `2d5a07d` — "Fix page-based pagination, add missing manifest scopes"
-- Tests: **47 passed, 0 failed** (`make test`)
-- Bundle: `make package` produces a ~96 KB `slack-skill.skill`
-- **Status: shippable for v1**, with a small backlog of v1.1 polish items
-  documented below.
+- Latest commit: `2fe40e3` — "Drop two manifest keys Slack's editor rejected"
+- Tests: **59 passed, 0 failed** (`make test`)
+- Bundle: `make package` produces `slack-skill.skill` (~96 KB)
+- Manifest is now `docs/slack-app-manifest.json` (paste-into-Slack as JSON,
+  35 user scopes, app name "cli")
+- Skill validated end-to-end against a real Slack workspace (Advocate);
+  11 of 13 evals exercised, all passed; sandbox cleaned up.
+- **Status: shipped + dogfooded.** v1.1 backlog still tracked below;
+  nothing currently in flight.
 
 ---
 
@@ -135,6 +144,60 @@ All fixes are in commit `2d5a07d`. The pre-fix state is `2eb4477`.
 
 ---
 
+## Session 2 update (2026-05-03 evening)
+
+Picked up via `/skill-creator`. Four commits on top of `2d5a07d`:
+
+| Commit | Summary |
+|---|---|
+| `e5e9a12` | Restructured SKILL.md description into intent / signals / non-targets paragraphs. Selected by `skill-creator/scripts/run_loop.py` over 5 iterations on a 20-query trigger eval set (12 train / 8 test). Marginal score gain — the absolute pass rate is bottlenecked by **`agent-browser`'s description claiming Slack** ("checking Slack unreads, sending Slack messages, searching Slack conversations"), which competes for the same triggers. The rewrite is structurally clearer regardless. |
+| `5499c58` | Added 3 new tests, +12 assertions: `test_call_all_page_based_merges_pages` (regression guard for the silent-truncate-to-page-1 bug fixed in `2d5a07d`), `test_doctor_reports_ok_for_healthy_workspace`, `test_doctor_reports_failure_on_auth_test_error`. Also gitignored `slack-workspace/` for skill-creator artifacts. 47 → 59 passing. |
+| `0eceaa5` | Switched `docs/slack-app-manifest.yaml` → `docs/slack-app-manifest.json` (Slack's editor was rejecting the YAML form). Renamed app to `cli` with description "User API Access for Slack Skill via Command Line". Expanded scope set 26 → 36 to cover every method documented in CHEATSHEET / FULL-REFERENCE. |
+| `2fe40e3` | Followup: dropped `features.bot_user: null` (Slack now rejects it; omitting the block is the correct way to declare no bot user) and `chat:write.public` (bot-only, "Illegal user scope found"). Final: **35 user scopes**, no `features` block. |
+
+Doc-reference updates (filename `.yaml`→`.json`, "switch editor tab to JSON"
+note) propagated through SKILL.md and README.md. Historical files
+(`docs/specs/`, `docs/plans/`) intentionally left as snapshots.
+
+### Live-eval pass against Advocate workspace
+
+Installed manifest, generated `xoxp-` token, ran 11 of 13 evals
+qualitatively against the real workspace. Used a self-created private
+channel `#skill-sandbox` (since archived) and DM-to-self for write
+evals. Skipped eval 10 (no second workspace) and eval 12 (no OmniFocus
+loaded). All 11 passed end-to-end:
+
+- Reads (1, 2, 7, 8, 11) — `conversations.history --resolve`,
+  `conversations.replies`, `users.conversations`, `search.messages`,
+  and the `channel_not_found` hint chain all worked first-try.
+- Writes (3, 4) — DM and channel post both succeeded; messages were
+  attributed to the user (verified visually by the user — `bot_profile`
+  field in the API response is metadata only, not display).
+- Derived (5, 6, 9) — react / mark / permalink each followed the
+  `conversations.history limit=1 → act on ts` pattern cleanly.
+
+Cleanup: 2 SKILLTEST DMs deleted via `chat.delete`, sandbox archived
+via `conversations.archive`. (Slack API doesn't expose channel delete
+for user tokens; archive is the equivalent.)
+
+### What's worth knowing for the next session
+
+- **`agent-browser` competes for Slack triggers.** Its installed
+  description names Slack actions explicitly. The SKILL.md description
+  optimizer hit a ceiling around 50–55% trigger rate that wording
+  alone can't break through. Real fix would require editing
+  `agent-browser` (out of scope for this skill).
+- **Slack's manifest editor rejects `features.bot_user: null` and
+  `chat:write.public` as a user scope.** Both omissions verified
+  against the live editor 2026-05-03. If the manifest is regenerated
+  from the spec, these need to stay omitted.
+- **The skill correctly impersonates the user** even though the API
+  response includes `bot_id` / `bot_profile` for the cli app. Slack
+  shows the message as from the user in the client UI. The
+  `as_user=true` parameter is not needed.
+
+---
+
 ## Open issues (deferred, non-blocking)
 
 These were noted by the final reviewer but not fixed. They're polish for
@@ -178,13 +241,13 @@ v1.1, not correctness blockers.
 
 ### Test coverage gaps the final reviewer flagged
 
-These would tighten the test suite if added:
+These would tighten the test suite if added. Items closed in session 2
+(`5499c58`) are crossed out.
 
-- No test for `cmd_doctor` (the recommended first-troubleshooting step).
+- ~~No test for `cmd_doctor`~~ — added (happy-path + auth-test-failure).
 - No test for the transport-error exit-3 path (force `urlopen` to fail).
-- No test for page-based pagination (added in commit `2d5a07d` without a
-  corresponding test — the inline smoke verified it works, but no
-  regression-test exists).
+- ~~No test for page-based pagination~~ — added; covers the
+  silent-truncate-to-page-1 regression fixed in `2d5a07d`.
 - No test for `--resolve` triggering an actual `users.info` lookup with a
   successful response (only inline-label and lookup-failure-fallback are
   tested).
@@ -223,7 +286,7 @@ From `/Users/dan/slack-skill`:
 
 ```bash
 # Tests pass
-make test                              # → 47 passed, 0 failed
+make test                              # → 59 passed, 0 failed
 
 # Bundle builds and cleans
 make package
@@ -232,7 +295,7 @@ make clean
 
 # Git state
 git status                             # → clean
-git log --oneline -5                   # → 2d5a07d at top
+git log --oneline -5                   # → 2fe40e3 at top
 git remote -v                          # → origin = github.com:dcgrigsby/slack-skill.git
 
 # Smoke test the CLI (no network, fixtures)
@@ -249,23 +312,29 @@ The **manual follow-up** the test suite can't cover: install on a real
 Slack workspace and exercise a real call. Steps:
 
 1. Visit https://api.slack.com/apps?new_app=1 → **From an app manifest**.
-2. Pick a workspace, paste `docs/slack-app-manifest.yaml`, click Create.
+2. Pick a workspace, **switch the editor tab to JSON**, paste
+   `docs/slack-app-manifest.json`, click Create.
 3. Click **Install to Workspace** → **Allow**.
 4. Copy the User OAuth Token (`xoxp-...`) from OAuth & Permissions.
 5. `python3 scripts/slack.py auth add --workspace test --token xoxp-...`
 6. `python3 scripts/slack.py auth test --workspace test` → expect OK with
-   team/user/scopes including all 26.
+   team/user/scopes including all 35 (Slack also adds `identify`
+   automatically, so `auth test` shows 36 in the scope list).
 7. `python3 scripts/slack.py call conversations.list --workspace test
    --params '{"types":"public_channel","limit":5}'` → expect channel list.
 8. Pick a test channel ID; post a message:
    `python3 scripts/slack.py call chat.postMessage --workspace test
    --params '{"channel":"C...","text":"SKILLTEST_smoke"}'` → expect
    `{"ok":true,"ts":"..."}` and a visible message in Slack as you.
-9. Clean up the test message via Slack UI.
+9. Clean up the test message via Slack UI (or `chat.delete`).
 
 If any step fails, the most likely cause is a manifest scope drift (Slack
-added a new required scope) or a missing scope on the install — `auth
-test` will show what's missing.
+added or renamed a required scope) or a missing scope on the install —
+`auth test` will show what's granted; compare against the JSON manifest.
+Slack's manifest editor will reject any user-only scope set to a
+bot-only scope (e.g. `chat:write.public`) and rejects
+`features.bot_user: null` — both confirmed against the live editor on
+2026-05-03.
 
 ---
 
@@ -278,11 +347,14 @@ In a new conversation, ideal context-load order:
 3. Skim `git log --oneline` to see what shipped.
 4. Run `make test` to confirm green.
 5. If continuing v1.1 work: pick from the "Open issues" list above. The
-   easiest wins (lowest risk, highest value):
-   - Add a regression test for page-based pagination (Fix 1 was
-     unit-tested inline but not committed-tested).
-   - Add a `cmd_doctor` test.
-   - Add the resolver-error-surface to stderr (lookup-failure visibility).
+   easiest remaining wins (lowest risk, highest value):
+   - Add the resolver-error-surface to stderr (lookup-failure visibility) —
+     resolver currently swallows TransportError + SlackAPIError silently;
+     a "12 of 47 references could not be resolved" warning at end of
+     `cmd_call` would close the silent-degradation gap.
+   - Add a transport-error exit-3 test (force `urlopen` to fail).
+   - Resolver N+1 batching via `concurrent.futures` — real perf win
+     (~10s → ~1s for 50 mentions).
 
 The repo's design and plan documents (`docs/specs/`, `docs/plans/`) are
 durable references. Don't expect a fresh session to remember conversation
@@ -341,19 +413,19 @@ docs/slack-api/Pins-Stars-Bookmarks.md
 docs/slack-api/Reactions.md
 docs/slack-api/Search.md
 docs/slack-api/Users.md
-docs/slack-app-manifest.yaml
+docs/slack-app-manifest.json
 docs/specs/2026-05-02-slack-skill-design.md
 evals/evals.json
 scripts/package_skill.py
 scripts/regen_reference.py
 scripts/slack.py
 scripts/test_slack.py
-SESSION-HANDOFF.md      ← this file (uncommitted)
+SESSION-HANDOFF.md      ← this file (committed; updated session 2)
 ```
 
-`SESSION-HANDOFF.md` is intentionally not committed at the time of writing.
-Commit it if you want it preserved in the public repo; otherwise add to
-`.gitignore` or delete after reading.
+`SESSION-HANDOFF.md` is committed and serves as the durable pickup
+point for fresh sessions. Update it in place (don't replace) when
+adding a new session.
 
 ---
 
