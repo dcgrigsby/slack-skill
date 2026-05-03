@@ -1,0 +1,83 @@
+{
+  "skill_name": "slack",
+  "evals": [
+    {
+      "id": 0,
+      "name": "first_time_setup",
+      "prompt": "Set up Slack for my work workspace.",
+      "expected_output": "A walkthrough that points the user at the app manifest, explains the browser steps, captures the token from chat, and runs auth add + auth test to verify."
+    },
+    {
+      "id": 1,
+      "name": "read_recent_channel",
+      "prompt": "What's new in #general today on my work Slack?",
+      "expected_output": "A summarized listing of today's messages from #general, with @user / #channel refs resolved (used --resolve)."
+    },
+    {
+      "id": 2,
+      "name": "read_thread",
+      "prompt": "Summarize the thread starting at this message: <permalink>",
+      "expected_output": "A summary of the thread parent and all replies, fetched via conversations.replies."
+    },
+    {
+      "id": 3,
+      "name": "send_dm",
+      "prompt": "DM bob saying SKILLTEST_running 5 late",
+      "expected_output": "A successful chat.postMessage to bob's DM channel containing the literal SKILLTEST_running 5 late text."
+    },
+    {
+      "id": 4,
+      "name": "send_channel",
+      "prompt": "Post to #ops: SKILLTEST_deploy is done",
+      "expected_output": "A successful chat.postMessage to #ops containing the SKILLTEST_ literal."
+    },
+    {
+      "id": 5,
+      "name": "react",
+      "prompt": "React to the most recent message in #general with eyes.",
+      "expected_output": "A reactions.add call with name=eyes against the latest message ts in #general."
+    },
+    {
+      "id": 6,
+      "name": "mark_read",
+      "prompt": "Mark #general as read up to the latest message.",
+      "expected_output": "A conversations.mark call with the latest visible ts."
+    },
+    {
+      "id": 7,
+      "name": "list_channels",
+      "prompt": "What channels and DMs am I in on work Slack?",
+      "expected_output": "A users.conversations call (likely with --all and types=public_channel,private_channel,im,mpim), grouped output by type."
+    },
+    {
+      "id": 8,
+      "name": "search",
+      "prompt": "Find messages where alice mentioned 'launch' in the last week.",
+      "expected_output": "A search.messages call with a query like 'from:alice launch after:<date>' and a readable result list."
+    },
+    {
+      "id": 9,
+      "name": "permalink",
+      "prompt": "Get me a permalink for that last message in #ops.",
+      "expected_output": "A chat.getPermalink call returning the canonical https://<workspace>.slack.com/... URL."
+    },
+    {
+      "id": 10,
+      "name": "multi_workspace",
+      "prompt": "Send 'SKILLTEST_status update' to #status in both my work and personal Slack.",
+      "expected_output": "Two chat.postMessage calls, one per --workspace."
+    },
+    {
+      "id": 11,
+      "name": "error_recovery_not_in_channel",
+      "prompt": "Read #private-im-not-in.",
+      "expected_output": "A first attempt that returns not_in_channel, followed by a clear explanation that the user is not a member and a suggestion to join or pick a different channel — not retried blindly."
+    },
+    {
+      "id": 12,
+      "name": "cross_skill",
+      "prompt": "Post the result of my OmniFocus weekly review to #status.",
+      "expected_output": "An OmniFocus query for completed-this-week tasks, formatted into a message body, then posted to #status via chat.postMessage."
+    }
+  ]
+}
