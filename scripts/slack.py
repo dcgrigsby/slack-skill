@@ -161,8 +161,10 @@ def _consume_test_fixture() -> dict | None:
         return None
     try:
         data = json.loads(Path(fp).read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
+    except OSError as e:
+        raise TransportError(f"test fixture file unreadable: {e}")
+    except json.JSONDecodeError as e:
+        raise TransportError(f"test fixture file is not valid JSON: {e}")
     if not data:
         raise TransportError("test fixture exhausted (no more canned responses)")
     nxt = data[0]
@@ -217,7 +219,10 @@ def http_post(method: str, params: dict, token: str,
 
         # Retry on 429 with short Retry-After.
         if status == 429 and attempt == 1:
-            retry_after = int(hdrs.get("retry-after", "0") or "0")
+            try:
+                retry_after = int(hdrs.get("retry-after", "0") or "0")
+            except ValueError:
+                retry_after = 0  # Unparseable → don't sleep; raise.
             if 0 < retry_after <= 30:
                 time.sleep(retry_after)
                 continue
@@ -226,10 +231,17 @@ def http_post(method: str, params: dict, token: str,
                 method,
             )
 
+        if not raw:
+            raise TransportError(f"empty body from {method} (status={status})")
         try:
-            parsed = json.loads(raw) if raw else {"ok": False, "error": f"http_{status}"}
+            parsed = json.loads(raw)
         except json.JSONDecodeError:
             raise TransportError(f"non-JSON response from {method}: {raw[:200]}")
+        if not isinstance(parsed, dict):
+            raise TransportError(
+                f"unexpected response shape from {method}: "
+                f"got {type(parsed).__name__}, expected object"
+            )
 
         return status, hdrs, parsed
 
