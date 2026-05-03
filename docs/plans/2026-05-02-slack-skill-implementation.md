@@ -295,7 +295,7 @@ if __name__ == "__main__":
 cd /Users/dan/slack-skill && make test
 ```
 
-Expected: `1 passed, 0 failed`. Exit 0.
+Expected: `2 passed, 0 failed`. Exit 0.
 
 - [ ] **Step 7: Commit**
 
