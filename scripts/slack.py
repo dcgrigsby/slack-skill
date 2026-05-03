@@ -499,7 +499,48 @@ def cmd_auth_test(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    raise NotImplementedError("Task 14")
+    failures = 0
+
+    # Python version
+    if sys.version_info >= (3, 9):
+        print(f"OK    python {sys.version.split()[0]} ≥ 3.9")
+    else:
+        print(f"FAIL  python {sys.version.split()[0]} < 3.9")
+        failures += 1
+
+    # Config file
+    p = config_path()
+    if not p.exists():
+        print(f"WARN  config {p} does not exist (run \"auth add\" to create)")
+    else:
+        mode = p.stat().st_mode & 0o777
+        if mode == 0o600:
+            print(f"OK    config {p} mode 0600")
+        else:
+            print(f"FAIL  config {p} mode {oct(mode)} (should be 0600)")
+            failures += 1
+
+    # Workspaces
+    cfg = load_config()
+    workspaces = cfg.get("workspaces", {})
+    if not workspaces:
+        print("WARN  no workspaces configured")
+    else:
+        for name in sorted(workspaces):
+            entry = workspaces[name]
+            try:
+                _status, _hdrs, body = http_post("auth.test", {}, entry["token"])
+            except TransportError as e:
+                print(f"FAIL  {name}  transport: {redact(str(e))}")
+                failures += 1
+                continue
+            if body.get("ok"):
+                print(f"OK    {name}  auth.test")
+            else:
+                print(f"FAIL  {name}  {body.get('error', 'unknown')}")
+                failures += 1
+
+    return 1 if failures else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
