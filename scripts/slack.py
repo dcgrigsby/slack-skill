@@ -441,7 +441,17 @@ def cmd_auth_list(args) -> int:
 
 
 def cmd_auth_remove(args) -> int:
-    raise NotImplementedError("Task 11")
+    cfg = load_config()
+    workspaces = cfg.get("workspaces", {})
+    if args.workspace not in workspaces:
+        print(f"workspace {args.workspace!r} not configured", file=sys.stderr)
+        return 5
+    del workspaces[args.workspace]
+    if cfg.get("default") == args.workspace:
+        cfg["default"] = ""
+    save_config(cfg)
+    print(f"removed workspace {args.workspace!r}", file=sys.stderr)
+    return 0
 
 
 def cmd_auth_default(args) -> int:

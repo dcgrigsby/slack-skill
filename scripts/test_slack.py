@@ -290,6 +290,32 @@ def test_call_channel_not_found_emits_hint():
         shutil.rmtree(tmp)
 
 
+def test_auth_remove_clears_default_when_removing_default():
+    print("\n[auth] remove default clears default")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w1", "--token", "xoxp-1",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U1", "user": "u1",
+                  "team_id": "T1", "team": "T1Name"}},
+            ]))
+        run("auth", "add", "--workspace", "w2", "--token", "xoxp-2",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U2", "user": "u2",
+                  "team_id": "T2", "team": "T2Name"}},
+            ]))
+        rc, _, err = run("auth", "remove", "--workspace", "w1",
+                         env=make_env(tmp))
+        case("remove returns 0", rc == 0, err)
+        cfg = json.loads((tmp / "config.json").read_text())
+        case("w1 gone", "w1" not in cfg["workspaces"])
+        case("default cleared", not cfg.get("default"), json.dumps(cfg))
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
