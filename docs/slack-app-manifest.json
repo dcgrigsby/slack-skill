@@ -3,9 +3,6 @@
     "name": "cli",
     "description": "User API Access for Slack Skill via Command Line"
   },
-  "features": {
-    "bot_user": null
-  },
   "oauth_config": {
     "scopes": {
       "user": [
@@ -15,7 +12,6 @@
         "channels:read",
         "channels:write",
         "chat:write",
-        "chat:write.public",
         "dnd:read",
         "dnd:write",
         "emoji:read",
