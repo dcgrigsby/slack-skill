@@ -329,7 +329,7 @@ Slack's search query syntax supports useful operators:
 - `before:2026-04-01`, `after:2026-04-25`, `on:2026-05-01` — date filters
 - `has:link`, `has:reaction` — message attribute filters
 
-Search is page-based (`page` param), not cursor-based — different pagination model than `conversations.history`. The skill handles this transparently if you pass `--all`, but be aware of the different shape if you're paginating manually.
+Search is page-based (`page` param), not cursor-based — different pagination model than `conversations.history`. `search.messages` has a nested-array response shape (`messages.matches`), which `--all` does NOT auto-paginate in v1; paginate manually by stepping `page` until `messages.pagination.page >= messages.pagination.page_count`. (`--all` does handle the simpler top-level `paging` shape used by methods like `files.list` and `stars.list`.)
 
 ### 10. Get a permalink for a message
 
@@ -404,6 +404,6 @@ Slack User Tokens act as the user. Treat them and write operations accordingly.
 - **Use IDs over names for write operations:** matching by name can hit the wrong channel or user if names aren't unique (Slack allows two DMs with similarly-named display names; channel names can collide across orgs you've signed into).
 - **Trust `--resolve` for human output:** when `--resolve` has rewritten a response into readable text, you don't need to re-do `users.info` / `conversations.info` yourself. The resolution is consistent.
 - **Timestamps are strings, not numbers:** `ts` and `thread_ts` look like floats (`"1714612345.123456"`) but Slack treats them as opaque string identifiers. Always pass them as JSON strings.
-- **Pagination has two flavors:** most methods use cursor pagination (`response_metadata.next_cursor`); `search.*` uses page-number pagination. `--all` handles both, but if you paginate manually, check which kind you're dealing with.
+- **Pagination has two flavors:** most methods use cursor pagination (`response_metadata.next_cursor`); some (e.g. `files.list`, `stars.list`) use page-number pagination with a top-level `paging` object. `--all` handles both. The exception is `search.messages`, which has a nested-array shape (`messages.matches`) that `--all` does not auto-paginate in v1 — paginate it manually with `page`.
 - **`conversations.list` vs `users.conversations`:** the former lists every channel in the workspace (often huge); the latter is scoped to channels the user is in. Default to the latter unless the user explicitly wants the full workspace directory.
 - **Multi-workspace defaults:** if the user has multiple workspaces and didn't specify one, ask which workspace before running. Don't pick one silently — the wrong workspace can mean posting to the wrong audience.

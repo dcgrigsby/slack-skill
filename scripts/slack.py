@@ -359,35 +359,64 @@ def _detect_array_field(page: dict) -> str | None:
 
 def paginate(method: str, params: dict, token: str, *,
              limit: int | None, debug_log=None) -> dict:
-    """Call method repeatedly with cursor until exhausted or limit hit.
+    """Call method repeatedly with cursor or page until exhausted or limit hit.
 
     Returns {"ok": True, "items": [...], "page_count": N}.
+    Supports cursor-based pagination (response_metadata.next_cursor) and
+    simple page-based pagination (top-level 'paging' object with 'page'
+    and 'pages').
     Raises SlackAPIError on ok:false; TransportError on transport failure.
     """
     items: list = []
     page_count = 0
     cursor = ""
+    page_num = 1  # for page-based methods; ignored for cursor-based
+    use_page_mode: bool | None = None  # None until first response inspected
+
     while True:
         page_params = dict(params)
-        if cursor:
+        if use_page_mode is True:
+            page_params["page"] = page_num
+        elif cursor:
             page_params["cursor"] = cursor
         _status, _hdrs, body = http_post(method, page_params, token, debug_log=debug_log)
         if not body.get("ok"):
             raise SlackAPIError(body, method)
         page_count += 1
+
+        # Determine pagination mode from first response.
+        if use_page_mode is None:
+            paging = body.get("paging")
+            if isinstance(paging, dict) and "pages" in paging:
+                use_page_mode = True
+            else:
+                use_page_mode = False
+
         field = _detect_array_field(body)
         if field is None:
             raise ValueError(
                 "cannot auto-detect array field for --all; pass without --all "
-                "and paginate manually using response_metadata.next_cursor"
+                "and paginate manually using response_metadata.next_cursor "
+                "or paging.page (this method may have a nested array shape "
+                "such as search.messages — those aren't auto-supported in v1)"
             )
         items.extend(body[field])
+
         if limit is not None and len(items) >= limit:
             items = items[:limit]
             break
-        cursor = body.get("response_metadata", {}).get("next_cursor") or ""
-        if not cursor:
-            break
+
+        if use_page_mode:
+            paging = body.get("paging", {})
+            total_pages = paging.get("pages", 0)
+            if page_num >= total_pages:
+                break
+            page_num += 1
+        else:
+            cursor = body.get("response_metadata", {}).get("next_cursor") or ""
+            if not cursor:
+                break
+
     return {"ok": True, "items": items, "page_count": page_count}
 
 
