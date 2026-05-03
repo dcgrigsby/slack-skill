@@ -466,6 +466,32 @@ def test_resolve_falls_back_on_lookup_failure():
         shutil.rmtree(tmp)
 
 
+# ----------------------------------------------------------------------- debug
+
+
+def test_debug_logs_to_stderr_with_redaction():
+    """--debug produces stderr lines and never reveals tokens."""
+    print("\n[debug] stderr emits redacted log lines")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-supersecret",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, _, err = run("call", "auth.test", "--workspace", "w", "--debug",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {}, "body": {"ok": True}},
+                         ]))
+        case("returns 0", rc == 0, err)
+        case("stderr non-empty", len(err.strip()) > 0)
+        case("token never visible", "supersecret" not in err, err[:300])
+        case("POST line present", "POST " in err, err[:300])
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

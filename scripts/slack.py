@@ -225,6 +225,8 @@ def http_post(method: str, params: dict, token: str,
     """
     fixture = _consume_test_fixture()
     if fixture is not None:
+        if debug_log:
+            debug_log(f"POST {SLACK_BASE}/{method} method={method} status={fixture['status']} elapsed=fixture (test mode)")
         return fixture["status"], {k.lower(): v for k, v in fixture.get("headers", {}).items()}, fixture["body"]
 
     url = f"{SLACK_BASE}/{method}"
