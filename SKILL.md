@@ -1,7 +1,11 @@
 ---
 name: slack
 description: |-
-  Read, send, and react to messages in the user's Slack workspaces on the user's behalf via the Slack Web API. Use whenever the user wants to read recent messages or threads in a channel or DM, send a message or DM, react to or unreact from a message, mark a channel as read up to a point, list channels and DMs, search across messages, get a permalink, manage pins / stars / bookmarks, or set up / add / verify a Slack workspace token. Operates with a User OAuth Token (xoxp-...) — every action is attributed to the user, not a bot. Calls the Slack Web API directly via a Python helper script (scripts/slack.py); no Bot Token, no Socket Mode, no daemon. Multi-workspace via named profiles in ~/.config/slack-skill/config.json.
+  Slack workspace operations on the user's behalf. Invoke this skill whenever the user wants to act inside Slack — posting to or reading a channel, DMing a person, replying in a thread, reacting with an emoji, fetching a permalink, marking read, listing channels/DMs, searching messages, pinning, or connecting/verifying a workspace token (xoxp-).
+
+  Treat these as Slack signals even when the word "slack" is absent: a `#channel` reference, "DM <name>", phrasings like "post X to #foo" or "what's happening in #bar", a `*.slack.com` workspace mention, or pasting an `xoxp-` token. If the user combines such a signal with a read/send/react/search/permalink/setup intent, this is the right skill — content-focused phrasings ("post 'X' to #status", "react :eyes: to the latest in #incidents") still count.
+
+  Do not use for Discord, Teams, email, SMS, GitHub, Notion, Obsidian, or other non-Slack platforms, even if the surface vocabulary (channel, DM, message) is similar.
 ---
 
 # Slack
