@@ -349,7 +349,39 @@ import argparse
 
 
 def cmd_call(args) -> int:
-    raise NotImplementedError("Task 8")
+    cfg = load_config()
+    try:
+        name, token = resolve_token(cfg, args.workspace)
+    except ConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 5
+
+    try:
+        params = json.loads(args.params)
+        if not isinstance(params, dict):
+            raise ValueError("must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"--params: invalid JSON object: {e}", file=sys.stderr)
+        return 2
+
+    debug = (lambda msg: print(msg, file=sys.stderr)) if args.debug else None
+
+    try:
+        status, _hdrs, body = http_post(args.method, params, token, debug_log=debug)
+    except TransportError as e:
+        print(f"transport error: {redact(str(e))}", file=sys.stderr)
+        return 3
+    except SlackAPIError as e:
+        # Rate-limited path raises this directly (above 30s wait).
+        print(json.dumps(e.response, separators=(",", ":")))
+        print(format_slack_error(args.method, name, e.response), file=sys.stderr)
+        return 1
+
+    print(json.dumps(body, separators=(",", ":")))
+    if not body.get("ok", False):
+        print(format_slack_error(args.method, name, body), file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_auth_add(args) -> int:
@@ -386,13 +418,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     # call
     pc = sub.add_parser("call", help="Invoke a Slack Web API method")
-    pc.add_argument("method")
-    pc.add_argument("--workspace", default=None)
-    pc.add_argument("--params", default="{}")
-    pc.add_argument("--resolve", action="store_true")
-    pc.add_argument("--all", action="store_true", dest="all_pages")
-    pc.add_argument("--limit", type=int, default=None)
-    pc.add_argument("--debug", action="store_true")
+    pc.add_argument("method", help="Slack Web API method, e.g. conversations.history")
+    pc.add_argument("--workspace", default=None,
+                    help="Workspace name (from `auth list`); defaults to the configured `default`.")
+    pc.add_argument("--params", default="{}",
+                    help="JSON object of method params. Nested objects/arrays are JSON-stringified.")
+    pc.add_argument("--resolve", action="store_true",
+                    help="Walk the response and expand <@U..>/<#C..> refs to readable names.")
+    pc.add_argument("--all", action="store_true", dest="all_pages",
+                    help="Auto-paginate cursor-based responses; merges all pages into items.")
+    pc.add_argument("--limit", type=int, default=None,
+                    help="Cap on items collected when --all is set.")
+    pc.add_argument("--debug", action="store_true",
+                    help="Log HTTP requests to stderr (tokens redacted).")
     pc.set_defaults(func=cmd_call)
 
     # auth
