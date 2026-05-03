@@ -181,6 +181,60 @@ def test_config_atomic_write_no_tmp_left_behind():
         shutil.rmtree(tmp)
 
 
+# ----------------------------------------------------------------------- http
+
+
+def test_http_form_encoding_via_call_smoke():
+    """Verify call subcommand POSTs form-encoded params and returns the body.
+
+    Uses canned responses; no real network. The fixture echoes a deterministic
+    response so we can assert on stdout shape.
+    """
+    print("\n[http] form-encoded POST via call")
+    tmp = make_tmp()
+    try:
+        # First: register a workspace so call can find a token.
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        # Then: a call.
+        rc, out, err = run("call", "auth.test", "--workspace", "w",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {}, "body":
+                                {"ok": True, "user": "alice", "team": "Acme"}},
+                           ]))
+        case("returns 0", rc == 0, f"rc={rc} stderr={err!r}")
+        body = json.loads(out)
+        case("returns ok=true", body.get("ok") is True, out)
+        case("returns echoed user", body.get("user") == "alice", out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_http_nested_params_json_stringified():
+    """Slack expects nested objects/arrays as JSON strings in form fields."""
+    print("\n[http] nested params JSON-stringified")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "chat.postMessage", "--workspace", "w",
+                           "--params", '{"channel":"C1","blocks":[{"type":"section","text":{"type":"mrkdwn","text":"hi"}}]}',
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {}, "body": {"ok": True, "ts": "1.0"}},
+                           ]))
+        case("returns 0", rc == 0, f"rc={rc} stderr={err!r}")
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
