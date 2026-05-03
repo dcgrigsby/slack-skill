@@ -113,6 +113,42 @@ def save_config(cfg: dict) -> None:
         pass
 
 
+# ---- workspace resolution ---------------------------------------------------
+
+
+class ConfigError(Exception):
+    """Raised when no workspace/token can be resolved."""
+
+
+def resolve_token(cfg: dict, workspace_arg: str | None) -> tuple[str, str]:
+    """Return (workspace_name, token) or raise ConfigError.
+
+    Precedence: --workspace flag → cfg['default'] → ConfigError.
+    """
+    workspaces = cfg.get("workspaces", {})
+    name = workspace_arg or cfg.get("default")
+    if not name:
+        if not workspaces:
+            raise ConfigError(
+                "no workspaces configured\n"
+                "hint: run \"slack.py auth add --workspace <name> --token xoxp-...\""
+            )
+        raise ConfigError(
+            "no --workspace given and no default set\n"
+            f"configured workspaces: {', '.join(sorted(workspaces))}\n"
+            "hint: pass --workspace <name>, or run "
+            "\"slack.py auth default --workspace <name>\""
+        )
+    entry = workspaces.get(name)
+    if not entry:
+        raise ConfigError(
+            f"workspace {name!r} not found\n"
+            f"configured workspaces: {', '.join(sorted(workspaces)) or '(none)'}\n"
+            "hint: run \"slack.py auth add --workspace " + name + " --token xoxp-...\""
+        )
+    return name, entry["token"]
+
+
 import time
 import urllib.error
 import urllib.parse
