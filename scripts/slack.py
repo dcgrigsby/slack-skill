@@ -58,6 +58,7 @@ def redact(text: str) -> str:
 
 import json
 import os
+import sys
 from pathlib import Path
 
 # ---- config -----------------------------------------------------------------
@@ -80,7 +81,8 @@ def load_config() -> dict:
     try:
         data = json.loads(p.read_text())
     except json.JSONDecodeError as e:
-        raise SystemExit(f"config error: {p} is not valid JSON: {e}")
+        print(f"config error: {p} is not valid JSON: {e}", file=sys.stderr)
+        raise SystemExit(5)
     data.setdefault("workspaces", {})
     return data
 
@@ -112,7 +114,6 @@ def save_config(cfg: dict) -> None:
 
 
 import argparse
-import sys
 
 
 def main(argv: list[str] | None = None) -> int:
