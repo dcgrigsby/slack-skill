@@ -261,8 +261,9 @@ HINTS = {
         "hint: use conversations.list or users.conversations to discover channel IDs."
     ),
     "not_in_channel": (
-        "hint: the user is not a member of that channel; join it first or use "
-        "a different channel."
+        "hint: the user is not a member of that channel. For public channels "
+        "call conversations.join with the channel ID. Private channels require "
+        "an existing member to invite you."
     ),
     "invalid_auth": (
         "hint: token is invalid or revoked. Re-run \"slack.py auth add\" with a "
@@ -276,8 +277,8 @@ HINTS = {
         "hint: the Slack account is suspended."
     ),
     "ratelimited": (
-        "hint: Slack returned 429. Wait Retry-After seconds and retry, or "
-        "narrow the query."
+        "hint: Slack returned 429; retry_after={retry_after}s. "
+        "Wait that long and retry, or narrow the query."
     ),
 }
 
@@ -293,6 +294,7 @@ def format_slack_error(method: str, workspace: str, response: dict) -> str:
         body = template.format(
             needed=response.get("needed", "?"),
             provided=response.get("provided", "?"),
+            retry_after=response.get("retry_after", "?"),
         )
     except (KeyError, IndexError):
         body = template
