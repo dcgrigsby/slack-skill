@@ -303,17 +303,98 @@ def format_slack_error(method: str, workspace: str, response: dict) -> str:
 
 import argparse
 
+# ---- argparse + dispatch ---------------------------------------------------
+
+
+def cmd_call(args) -> int:
+    raise NotImplementedError("Task 8")
+
+
+def cmd_auth_add(args) -> int:
+    raise NotImplementedError("Task 9")
+
+
+def cmd_auth_list(args) -> int:
+    raise NotImplementedError("Task 10")
+
+
+def cmd_auth_remove(args) -> int:
+    raise NotImplementedError("Task 11")
+
+
+def cmd_auth_default(args) -> int:
+    raise NotImplementedError("Task 12")
+
+
+def cmd_auth_test(args) -> int:
+    raise NotImplementedError("Task 13")
+
+
+def cmd_doctor(args) -> int:
+    raise NotImplementedError("Task 14")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="slack.py",
+        description="Slack Web API CLI for the slack-skill skill.",
+    )
+    p.add_argument("--version", action="version", version="slack.py 0.1.0")
+    sub = p.add_subparsers(dest="cmd", required=False)
+
+    # call
+    pc = sub.add_parser("call", help="Invoke a Slack Web API method")
+    pc.add_argument("method")
+    pc.add_argument("--workspace", default=None)
+    pc.add_argument("--params", default="{}")
+    pc.add_argument("--resolve", action="store_true")
+    pc.add_argument("--all", action="store_true", dest="all_pages")
+    pc.add_argument("--limit", type=int, default=None)
+    pc.add_argument("--debug", action="store_true")
+    pc.set_defaults(func=cmd_call)
+
+    # auth
+    pa = sub.add_parser("auth", help="Manage workspace tokens")
+    pasub = pa.add_subparsers(dest="auth_cmd", required=True)
+
+    paa = pasub.add_parser("add", help="Add or replace a workspace token")
+    paa.add_argument("--workspace", required=True)
+    paa.add_argument("--token", required=True)
+    paa.set_defaults(func=cmd_auth_add)
+
+    pal = pasub.add_parser("list", help="List configured workspaces")
+    pal.set_defaults(func=cmd_auth_list)
+
+    par = pasub.add_parser("remove", help="Remove a workspace")
+    par.add_argument("--workspace", required=True)
+    par.set_defaults(func=cmd_auth_remove)
+
+    pad = pasub.add_parser("default", help="Set the default workspace")
+    pad.add_argument("--workspace", required=True)
+    pad.set_defaults(func=cmd_auth_default)
+
+    pat = pasub.add_parser("test", help="Run auth.test against configured workspaces")
+    pat.add_argument("--workspace", default=None)
+    pat.set_defaults(func=cmd_auth_test)
+
+    # doctor
+    pd = sub.add_parser("doctor", help="End-to-end self-check")
+    pd.set_defaults(func=cmd_doctor)
+
+    return p
+
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="slack.py", description=__doc__.split("\n")[1])
-    parser.add_argument("--version", action="version", version="slack.py 0.1.0")
-    sub = parser.add_subparsers(dest="cmd", required=False)
-    # Subcommands wired in later tasks.
+    parser = build_parser()
     args = parser.parse_args(argv)
     if not args.cmd:
         parser.print_help(sys.stderr)
         return 2
-    return 0
+    try:
+        return args.func(args)
+    except NotImplementedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
