@@ -343,6 +343,52 @@ def format_slack_error(method: str, workspace: str, response: dict) -> str:
     return f"{head}\n{body}"
 
 
+# ---- pagination -------------------------------------------------------------
+
+
+def _detect_array_field(page: dict) -> str | None:
+    """Return the single top-level array field name, or None."""
+    arrays = [k for k, v in page.items()
+              if isinstance(v, list) and k != "response_metadata"]
+    if len(arrays) == 1:
+        return arrays[0]
+    return None
+
+
+def paginate(method: str, params: dict, token: str, *,
+             limit: int | None, debug_log=None) -> dict:
+    """Call method repeatedly with cursor until exhausted or limit hit.
+
+    Returns {"ok": True, "items": [...], "page_count": N}.
+    Raises SlackAPIError on ok:false; TransportError on transport failure.
+    """
+    items: list = []
+    page_count = 0
+    cursor = ""
+    while True:
+        page_params = dict(params)
+        if cursor:
+            page_params["cursor"] = cursor
+        _status, _hdrs, body = http_post(method, page_params, token, debug_log=debug_log)
+        if not body.get("ok"):
+            raise SlackAPIError(body, method)
+        page_count += 1
+        field = _detect_array_field(body)
+        if field is None:
+            raise ValueError(
+                "cannot auto-detect array field for --all; pass without --all "
+                "and paginate manually using response_metadata.next_cursor"
+            )
+        items.extend(body[field])
+        if limit is not None and len(items) >= limit:
+            items = items[:limit]
+            break
+        cursor = body.get("response_metadata", {}).get("next_cursor") or ""
+        if not cursor:
+            break
+    return {"ok": True, "items": items, "page_count": page_count}
+
+
 import argparse
 
 # ---- argparse + dispatch ---------------------------------------------------
@@ -367,15 +413,20 @@ def cmd_call(args) -> int:
     debug = (lambda msg: print(msg, file=sys.stderr)) if args.debug else None
 
     try:
-        status, _hdrs, body = http_post(args.method, params, token, debug_log=debug)
+        if args.all_pages:
+            body = paginate(args.method, params, token, limit=args.limit, debug_log=debug)
+        else:
+            _status, _hdrs, body = http_post(args.method, params, token, debug_log=debug)
     except TransportError as e:
         print(f"transport error: {redact(str(e))}", file=sys.stderr)
         return 3
     except SlackAPIError as e:
-        # Rate-limited path raises this directly (above 30s wait).
         print(json.dumps(e.response, separators=(",", ":")))
         print(format_slack_error(args.method, name, e.response), file=sys.stderr)
         return 1
+    except ValueError as e:
+        print(f"--all: {e}", file=sys.stderr)
+        return 2
 
     print(json.dumps(body, separators=(",", ":")))
     if not body.get("ok", False):

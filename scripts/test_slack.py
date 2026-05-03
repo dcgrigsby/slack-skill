@@ -354,6 +354,62 @@ def test_auth_test_reports_scopes_from_header():
         shutil.rmtree(tmp)
 
 
+# ----------------------------------------------------------------- pagination
+
+
+def test_call_all_merges_pages():
+    print("\n[paginate] --all merges multiple pages")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "conversations.history", "--workspace", "w",
+                           "--params", '{"channel":"C1"}', "--all",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True, "messages": [{"ts": "1"}, {"ts": "2"}],
+                                         "response_metadata": {"next_cursor": "abc"}}},
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True, "messages": [{"ts": "3"}],
+                                         "response_metadata": {"next_cursor": ""}}},
+                           ]))
+        case("returns 0", rc == 0, err)
+        body = json.loads(out)
+        case("has items", "items" in body, out)
+        case("merged 3 messages", len(body.get("items", [])) == 3, out)
+        case("page_count is 2", body.get("page_count") == 2, out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_call_all_respects_limit():
+    print("\n[paginate] --limit truncates")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, _ = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C1"}', "--all", "--limit", "2",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "messages": [{"ts": "1"}, {"ts": "2"}, {"ts": "3"}],
+                                       "response_metadata": {"next_cursor": "abc"}}},
+                         ]))
+        case("returns 0", rc == 0)
+        body = json.loads(out)
+        case("truncated to 2", len(body.get("items", [])) == 2, out)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 
