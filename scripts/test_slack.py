@@ -235,6 +235,61 @@ def test_http_nested_params_json_stringified():
         shutil.rmtree(tmp)
 
 
+# ------------------------------------------------------------- slack errors
+
+
+def test_call_missing_scope_emits_hint():
+    print("\n[errors] missing_scope produces curated hint")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "conversations.history", "--workspace", "w",
+                           "--params", '{"channel":"C1"}',
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {"x-oauth-scopes": "users:read"},
+                                "body": {"ok": False, "error": "missing_scope",
+                                         "needed": "channels:history",
+                                         "provided": "users:read"}},
+                           ]))
+        case("returns 1", rc == 1, f"rc={rc}")
+        body = json.loads(out)
+        case("response on stdout", body.get("error") == "missing_scope", out)
+        case("hint mentions reinstall", "reinstall" in err.lower(), err)
+        case("mentions needed scope", "channels:history" in err, err)
+
+
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_call_channel_not_found_emits_hint():
+    print("\n[errors] channel_not_found hint")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, _, err = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C999"}',
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "channel_not_found"}},
+                         ]))
+        case("returns 1", rc == 1)
+        case("hint mentions conversations.list",
+             "conversations.list" in err or "users.conversations" in err, err)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

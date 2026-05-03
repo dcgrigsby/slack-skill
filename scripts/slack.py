@@ -248,6 +248,57 @@ def http_post(method: str, params: dict, token: str,
     raise TransportError(f"unreachable: retry loop exited for {method}")
 
 
+# ---- Slack API error interpretation -----------------------------------------
+
+
+HINTS = {
+    "missing_scope": (
+        "needed: {needed}; provided: {provided}\n"
+        "hint: reinstall the app with the missing scope, then refresh the token "
+        "(slack.py auth add --workspace <name> --token xoxp-...)"
+    ),
+    "channel_not_found": (
+        "hint: use conversations.list or users.conversations to discover channel IDs."
+    ),
+    "not_in_channel": (
+        "hint: the user is not a member of that channel; join it first or use "
+        "a different channel."
+    ),
+    "invalid_auth": (
+        "hint: token is invalid or revoked. Re-run \"slack.py auth add\" with a "
+        "fresh User OAuth Token."
+    ),
+    "token_revoked": (
+        "hint: token was revoked. Re-run \"slack.py auth add\" with a fresh "
+        "User OAuth Token."
+    ),
+    "account_inactive": (
+        "hint: the Slack account is suspended."
+    ),
+    "ratelimited": (
+        "hint: Slack returned 429. Wait Retry-After seconds and retry, or "
+        "narrow the query."
+    ),
+}
+
+
+def format_slack_error(method: str, workspace: str, response: dict) -> str:
+    """One-line summary plus a hint for stderr emission."""
+    err = response.get("error", "unknown_error")
+    head = f"slack API error: {err} (workspace={workspace}, method={method})"
+    template = HINTS.get(err)
+    if not template:
+        return head
+    try:
+        body = template.format(
+            needed=response.get("needed", "?"),
+            provided=response.get("provided", "?"),
+        )
+    except (KeyError, IndexError):
+        body = template
+    return f"{head}\n{body}"
+
+
 import argparse
 
 
