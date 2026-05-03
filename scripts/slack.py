@@ -423,7 +423,21 @@ def cmd_auth_add(args) -> int:
 
 
 def cmd_auth_list(args) -> int:
-    raise NotImplementedError("Task 10")
+    cfg = load_config()
+    workspaces = cfg.get("workspaces", {})
+    if not workspaces:
+        print("(no workspaces configured)")
+        return 0
+    default = cfg.get("default")
+    width = max((len(n) for n in workspaces), default=8)
+    for name in sorted(workspaces):
+        entry = workspaces[name]
+        marker = "*" if name == default else " "
+        team = entry.get("team_name") or "?"
+        user = entry.get("user_name") or "?"
+        token = mask_token(entry.get("token", ""))
+        print(f"{marker} {name:<{width}}  team={team}  user={user}  token={token}")
+    return 0
 
 
 def cmd_auth_remove(args) -> int:
