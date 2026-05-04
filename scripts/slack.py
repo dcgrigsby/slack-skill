@@ -159,6 +159,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 # ---- HTTP transport ---------------------------------------------------------
 
@@ -302,21 +303,39 @@ def http_post(method: str, params: dict, token: str,
     raise TransportError(f"unreachable: retry loop exited for {method}")
 
 
-def http_put_bytes(url: str, data: bytes, *, debug_log=None) -> int:
-    """PUT raw bytes to url. Returns HTTP status (no body interpretation).
+def http_upload_to_url(url: str, data: bytes, filename: str,
+                       *, debug_log=None) -> int:
+    """POST file bytes as multipart/form-data. Returns HTTP status.
 
-    Used for the middle step of files.getUploadURLExternal → PUT → complete.
-    The URL is a short-lived AWS-signed URL; no Authorization header is
-    required and we don't add one. Honors SLACK_SKILL_TEST_RESPONSES.
+    Used for the middle step of files.getUploadURLExternal → POST → complete.
+    The URL is a short-lived signed URL; no Authorization header is required
+    and we don't add one. Honors SLACK_SKILL_TEST_RESPONSES.
+
+    Slack's upload endpoint requires POST + multipart/form-data with field
+    name "file"; raw PUT is silently rejected with a 302 to https://slack.com,
+    and because Slack still records the metadata from step 1, step 3 then
+    returns ok with a phantom file that has no bytes and no shares. So this
+    function MUST POST multipart and the caller MUST treat any non-2xx as
+    failure.
     """
     fixture = _consume_test_fixture()
     if fixture is not None:
         if debug_log:
-            debug_log(f"PUT (test fixture) status={fixture['status']}")
+            debug_log(f"POST (test fixture) status={fixture['status']}")
         return fixture["status"]
 
-    req = urllib.request.Request(url, data=data, method="PUT",
-                                 headers={"Content-Length": str(len(data))})
+    boundary = "----slackskill" + uuid.uuid4().hex
+    safe_name = filename.replace('"', "_").replace("\r", "").replace("\n", "")
+    body = (
+        f'--{boundary}\r\n'
+        f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'
+        f'Content-Type: application/octet-stream\r\n\r\n'
+    ).encode("utf-8") + data + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
     started = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=DEFAULT_READ_TIMEOUT) as resp:
@@ -324,13 +343,12 @@ def http_put_bytes(url: str, data: bytes, *, debug_log=None) -> int:
     except urllib.error.HTTPError as e:
         status = e.code
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        raise TransportError(f"transport error during upload PUT: {e}") from e
+        raise TransportError(f"transport error during upload POST: {e}") from e
     elapsed = time.monotonic() - started
 
     if debug_log:
-        # Strip the query string — it contains the AWS signature.
         host = url.split("?", 1)[0]
-        debug_log(f"PUT {host} status={status} elapsed={elapsed:.2f}s")
+        debug_log(f"POST {host} status={status} elapsed={elapsed:.2f}s")
     return status
 
 
@@ -844,14 +862,16 @@ def cmd_upload(args) -> int:
               "missing upload_url or file_id", file=sys.stderr)
         return 3
 
-    # Step 2: PUT the bytes to the signed URL.
+    # Step 2: POST the bytes to the signed URL as multipart/form-data.
     try:
-        status = http_put_bytes(upload_url, data, debug_log=debug)
+        status = http_upload_to_url(upload_url, data, filename, debug_log=debug)
     except TransportError as e:
         print(f"transport error during upload: {e}", file=sys.stderr)
         return 3
-    if status >= 400:
-        print(f"upload PUT failed (status={status})", file=sys.stderr)
+    # Slack returns 200 on success and a 3xx redirect to https://slack.com on
+    # failure; anything other than 2xx means the bytes weren't accepted.
+    if not (200 <= status < 300):
+        print(f"upload failed (status={status})", file=sys.stderr)
         return 3
 
     # Step 3: tell Slack the upload is done and (optionally) share it.

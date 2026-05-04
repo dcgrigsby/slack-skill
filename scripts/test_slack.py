@@ -774,6 +774,49 @@ def test_upload_step1_error_short_circuits():
         shutil.rmtree(tmp)
 
 
+def test_upload_step2_3xx_treated_as_failure():
+    """Regression guard: Slack rejects malformed uploads with a 302 redirect
+    to https://slack.com instead of a 4xx. The earlier `status >= 400` check
+    let that 302 through, after which step 3 (completeUploadExternal) returns
+    ok with a phantom file — leaving an uploader who sees success but no
+    actual file. The upload command must treat anything outside 2xx as a
+    step-2 failure (exit 3) and never invoke step 3.
+
+    The fixture queue gets two responses (auth.test was consumed by `auth
+    add`, so the upload run's first fixture is step 1). If step 3 wrongly
+    runs, it would pop a third fixture that doesn't exist and raise — making
+    the test fail loud.
+    """
+    print("\n[upload] step-2 non-2xx exits 3 and short-circuits step 3")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        f = tmp / "hello.txt"
+        f.write_text("hi")
+        rc, _, err = run("upload", "--workspace", "w",
+                         "--file", str(f),
+                         "--channel", "C0123",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {}, "body":
+                              {"ok": True,
+                               "upload_url": "https://files.slack.com/upload/v1/abc",
+                               "file_id": "F00001"}},
+                             {"status": 302, "headers": {}, "body": {}},
+                         ]))
+        case("returns 3", rc == 3, f"rc={rc} stderr={err!r}")
+        case("stderr names the failure",
+             "upload failed" in err, err[:200])
+        case("status is in the message",
+             "302" in err, err[:200])
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

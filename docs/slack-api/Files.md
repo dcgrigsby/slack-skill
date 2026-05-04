@@ -113,7 +113,8 @@ in favor of a 3-call sequence:
 
 1. `files.getUploadURLExternal` — Slack returns a one-time signed URL
    and a `file_id`.
-2. `PUT` the file's bytes to that URL (this hits AWS S3, not Slack).
+2. `POST` the file's bytes to that URL as `multipart/form-data` (the
+   `file` field carries the bytes). Slack rejects raw PUT with a 302.
 3. `files.completeUploadExternal` — tell Slack the bytes are uploaded
    and (optionally) which channel to share the file in.
 
@@ -139,12 +140,14 @@ Scope: `files:write`. Errors:
 - `not_in_channel` — token holder isn't a member of `--channel`. For
   public channels, `conversations.join` first.
 - `file_not_found` (during step 3) — the `file_id` from step 1 wasn't
-  populated by a successful PUT in step 2; usually means the upload
+  populated by a successful POST in step 2; usually means the upload
   itself failed with an HTTP error.
 
-The PUT step does not retry on transport failure; if it fails, the
+The POST step does not retry on transport failure; if it fails, the
 whole subcommand exits 3 and the file_id from step 1 is wasted (Slack
-will garbage-collect it within a few hours).
+will garbage-collect it within a few hours). Any non-2xx status from
+step 2 is treated as failure — Slack rejects malformed uploads with a
+302 redirect to https://slack.com rather than a 4xx.
 
 ## URL fields — when each is appropriate
 
