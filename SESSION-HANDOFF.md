@@ -1,4 +1,4 @@
-# slack-skill — Session Handoff (2026-05-03)
+# slack-skill — Session Handoff (2026-05-03, updated session 3)
 
 This doc summarizes the state of the slack-skill build at the end of a long
 multi-phase session: brainstorming → spec → implementation plan → 27-task
@@ -16,15 +16,16 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: `2fe40e3` — "Drop two manifest keys Slack's editor rejected"
-- Tests: **59 passed, 0 failed** (`make test`)
-- Bundle: `make package` produces `slack-skill.skill` (~96 KB)
+- Latest commit: `95dff59` — "Preserve Slack response body in synthetic 429 error"
+- Tests: **63 passed, 0 failed** (`make test`)
+- Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
 - Manifest is now `docs/slack-app-manifest.json` (paste-into-Slack as JSON,
   35 user scopes, app name "cli")
 - Skill validated end-to-end against a real Slack workspace (Advocate);
   11 of 13 evals exercised, all passed; sandbox cleaned up.
-- **Status: shipped + dogfooded.** v1.1 backlog still tracked below;
-  nothing currently in flight.
+- **Status: shipped + dogfooded + v1.1 polish round complete.** Larger
+  scoped-out items (search.messages auto-pagination, files.upload
+  multipart, Linux/Windows config paths) still tracked below.
 
 ---
 
@@ -198,6 +199,26 @@ for user tokens; archive is the equivalent.)
 
 ---
 
+## Session 3 update (2026-05-03 late evening)
+
+Picked up via `/skill-creator`. Worked the v1.1 polish backlog. Five
+commits on top of `c5b8cff`:
+
+| Commit | Summary |
+|---|---|
+| `427eebe` | `missing_scope` hint label fix: `needed:`/`provided:` → `needs:`/`current:` to match the original spec wording. Slack's response field names (`needed`, `provided`) are unchanged — only display labels moved. |
+| `5deca1b` | Reframed eval 11 (`error_recovery_not_in_channel`) to name a public channel. Private channels return `channel_not_found` (Slack hides their existence from non-members), so the old prompt couldn't actually elicit `not_in_channel`. |
+| `f1df1e1` | Added `test_call_transport_error_exits_3` (+4 assertions). Uses fixture-exhaustion as a synthetic transport error — exercises the `except TransportError → return 3` branch, asserts stdout stays empty, and verifies the token is never echoed to stderr. 59 → 63 tests. |
+| `4c42f41` | Trimmed dev-only artifacts from the `.skill` bundle. `package_skill.py`'s `INCLUDE` previously pulled `scripts/` and `docs/` whole; now lists `scripts/slack.py`, `docs/slack-api`, and `docs/slack-app-manifest.json` explicitly. Bundle: **98 KB → 58 KB** (~41% reduction). |
+| `95dff59` | Synthetic 429 response now preserves Slack's body. Previously, exceeding the 30s Retry-After cap raised `SlackAPIError` with a fresh `{ok, error, retry_after}` dict — discarding any extra fields Slack returned (warnings, response_metadata). Now the parsed body is merged in first. **Note:** this code path is not currently exercised by tests because the fixture mechanism short-circuits the retry/rate-limit loop; gap documented in commit message. |
+
+### What's worth knowing for the next session
+
+- **The 429/5xx retry loop is fixture-uncovered.** `SLACK_SKILL_TEST_RESPONSES` short-circuits `http_post` before the retry block, so no test hits the rate-limit path. Refactoring the fixture to participate in the loop is a separate, more invasive task.
+- **v1.1 polish is done.** What's still tracked below is the originally-scoped-out v1 items (search.messages nested-array pagination, files.upload multipart, Linux/Windows config paths) plus stretch refactors.
+
+---
+
 ## Open issues (deferred, non-blocking)
 
 These were noted by the final reviewer but not fixed. They're polish for
@@ -220,24 +241,23 @@ v1.1, not correctness blockers.
 
 ### Known minor inconsistencies
 
+Items closed in session 3 are crossed out.
+
 - **`auth list`, `auth test`, `doctor` output goes to stdout** — they
   print human-readable status (not JSON), so arguably stderr would be
   more consistent with the file's "stdout = structured data, stderr =
-  diagnostics" header. Debatable; not a bug.
-- **Bundle includes `docs/specs/`, `docs/plans/`, dev-only scripts** —
-  about 30 KB of dead weight in a 96 KB bundle. `package_skill.py`'s
-  `INCLUDE` list whitelists `docs/` and `scripts/` wholesale.
-- **`missing_scope` hint says `needed:` / `provided:`** — spec said
-  `needs:` / `current:`. Trivial wording delta.
-- **Synthetic 429 response on long Retry-After loses original Slack body**
-  (`scripts/slack.py:273-276`). The retry_after is preserved; other
-  response fields aren't.
-- **Eval id 11 (`error_recovery_not_in_channel`) prompts "Read
-  #private-im-not-in"** — but `conversations.history` on a private
-  channel the user isn't in returns `channel_not_found`, not
-  `not_in_channel`. The eval's framing still works (LLM should detect the
-  error and explain) but the curated hint will be the
-  `channel_not_found` one.
+  diagnostics" header. Debatable; not a bug. Explicitly skipped in
+  session 3.
+- ~~**Bundle includes `docs/specs/`, `docs/plans/`, dev-only scripts**~~
+  — fixed in `4c42f41` (98 KB → 58 KB).
+- ~~**`missing_scope` hint says `needed:` / `provided:`**~~ — fixed in
+  `427eebe`.
+- ~~**Synthetic 429 response on long Retry-After loses original Slack body**~~
+  — fixed in `95dff59` (body merged in before overlaying canonical
+  markers).
+- ~~**Eval id 11 prompts a private channel that returns `channel_not_found`**~~
+  — fixed in `5deca1b` (now names a public channel to actually elicit
+  `not_in_channel`).
 
 ### Test coverage gaps the final reviewer flagged
 
@@ -245,7 +265,9 @@ These would tighten the test suite if added. Items closed in session 2
 (`5499c58`) are crossed out.
 
 - ~~No test for `cmd_doctor`~~ — added (happy-path + auth-test-failure).
-- No test for the transport-error exit-3 path (force `urlopen` to fail).
+- ~~No test for the transport-error exit-3 path~~ — added in `f1df1e1`
+  using fixture-exhaustion as a synthetic transport error (a real
+  `urlopen` failure exercises the same `except` branch).
 - ~~No test for page-based pagination~~ — added; covers the
   silent-truncate-to-page-1 regression fixed in `2d5a07d`.
 - No test for `--resolve` triggering an actual `users.info` lookup with a
@@ -286,7 +308,7 @@ From `/Users/dan/slack-skill`:
 
 ```bash
 # Tests pass
-make test                              # → 59 passed, 0 failed
+make test                              # → 63 passed, 0 failed
 
 # Bundle builds and cleans
 make package
