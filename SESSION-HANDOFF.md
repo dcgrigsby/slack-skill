@@ -16,7 +16,7 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: TBD (session 5 in progress).
+- Latest commit: `9c4e171` — "Update SESSION-HANDOFF for session 5 (live evals 13-16, upload bug fix)"
 - Tag: `v1.0.0` pushed.
 - Tests: **80 passed, 0 failed** (`make test`)
 - Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
