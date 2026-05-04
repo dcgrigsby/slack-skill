@@ -80,7 +80,7 @@ Conventions:
 - `files.list`     List files. Params: user, channel, ts_from, ts_to, types, count, page. Scope: files:read. [paginated via page]
 - `files.info`     File metadata + comments. Params: file*, count, page. Scope: files:read. [paginated via page]
 - `files.delete`   Delete a file. Params: file*. Scope: files:write.
-- `files.upload`   Upload a file. (Multipart — out of scope for v1.)
+- `slack.py upload`   Upload a file via the modern 3-call flow (getUploadURLExternal → PUT → completeUploadExternal). Args: --file, [--channel, --title, --initial-comment, --thread-ts, --alt-text]. Scope: files:write. (Deprecated single-call `files.upload` is not supported.)
 
 ## pins
 

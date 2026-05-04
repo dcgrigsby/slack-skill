@@ -1,10 +1,11 @@
 # files.*
 
-File metadata access. v1 of this skill is **read-only** for files —
-`files.upload` requires multipart form bodies and is deferred. Three
-methods are in scope: `files.list`, `files.info`, and `files.delete`.
-The manifest grants `files:read`; `files.delete` needs `files:write`,
-which is **not** in the default scope set.
+File metadata access plus a write surface for uploads. Four methods
+are in scope: `files.list`, `files.info`, `files.delete`, and the
+`slack.py upload` subcommand (which orchestrates the modern 3-call
+upload flow internally — see below). The manifest grants `files:read`;
+`files.delete` and `slack.py upload` need `files:write`, which is
+**not** in the default scope set.
 
 A "file" in Slack covers many object types: classic uploads
 (`filetype:pdf`, `png`, etc.), Slack-native posts, snippets, canvases,
@@ -105,21 +106,45 @@ user is workspace admin and admin scopes are granted). Errors:
 `cant_delete_file` (insufficient permission), `file_not_found`,
 `file_deleted` (already gone).
 
-## files.upload — out of scope
+## slack.py upload — modern 3-call flow
 
-`files.upload` is a multipart-form endpoint and is intentionally not
-covered by this skill. The newer `files.getUploadURLExternal` +
-`files.completeUploadExternal` flow is also out of scope. To upload
-in v1, drop down to `curl`:
+Slack deprecated the single-call `files.upload` (multipart) endpoint
+in favor of a 3-call sequence:
+
+1. `files.getUploadURLExternal` — Slack returns a one-time signed URL
+   and a `file_id`.
+2. `PUT` the file's bytes to that URL (this hits AWS S3, not Slack).
+3. `files.completeUploadExternal` — tell Slack the bytes are uploaded
+   and (optionally) which channel to share the file in.
+
+The `slack.py upload` subcommand orchestrates all three internally. It
+does not support the deprecated `files.upload`.
 
 ```bash
-TOKEN=$(python3 scripts/slack.py auth list | head -1 | awk '{print $1}')  # adjust to your needs
-curl -F file=@./report.pdf -F channels=C0123 \
-     -H "Authorization: Bearer $TOKEN" \
-     https://slack.com/api/files.upload
+python3 scripts/slack.py upload \
+  --file ./report.pdf \
+  --channel C0123 \
+  --title "Q4 report" \
+  --initial-comment "Latest draft, comments welcome."
 ```
 
-(Future task: add `slack.py upload` with multipart support.)
+Without `--channel`, the file is uploaded but not shared anywhere — the
+user is the only one who can see it via `files.list`. To post into a
+thread instead of a channel root, also pass `--thread-ts <ts>`. For
+images, `--alt-text` provides accessibility text.
+
+Scope: `files:write`. Errors:
+- `missing_scope` — token lacks `files:write` (see scope walkthrough
+  in the README to add it).
+- `not_in_channel` — token holder isn't a member of `--channel`. For
+  public channels, `conversations.join` first.
+- `file_not_found` (during step 3) — the `file_id` from step 1 wasn't
+  populated by a successful PUT in step 2; usually means the upload
+  itself failed with an HTTP error.
+
+The PUT step does not retry on transport failure; if it fails, the
+whole subcommand exits 3 and the file_id from step 1 is wasted (Slack
+will garbage-collect it within a few hours).
 
 ## URL fields — when each is appropriate
 

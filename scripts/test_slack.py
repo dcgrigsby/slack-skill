@@ -678,6 +678,102 @@ def test_debug_logs_to_stderr_with_redaction():
         shutil.rmtree(tmp)
 
 
+# ----------------------------------------------------------------------- upload
+
+
+def test_upload_orchestrates_three_calls():
+    """Happy path: getUploadURLExternal → PUT → completeUploadExternal.
+
+    The fixture queue is consumed in order — three responses for the three
+    HTTP calls — so passing in three fixtures and observing exit 0 confirms
+    the orchestration ran end-to-end.
+    """
+    print("\n[upload] orchestrates the 3-call flow end-to-end")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        f = tmp / "hello.txt"
+        f.write_text("hello world")
+        rc, out, err = run("upload", "--workspace", "w",
+                           "--file", str(f),
+                           "--channel", "C0123",
+                           "--title", "Greeting",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {}, "body":
+                                {"ok": True,
+                                 "upload_url": "https://files.slack.com/upload/v1/abc?sig=xyz",
+                                 "file_id": "F00001"}},
+                               {"status": 200, "headers": {}, "body": {}},
+                               {"status": 200, "headers": {}, "body":
+                                {"ok": True,
+                                 "files": [{"id": "F00001", "title": "Greeting"}]}},
+                           ]))
+        case("returns 0", rc == 0, f"rc={rc} stderr={err!r}")
+        body = json.loads(out)
+        case("ok=true", body.get("ok") is True, out)
+        case("file_id propagated to complete response",
+             body.get("files", [{}])[0].get("id") == "F00001", out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_upload_rejects_missing_file():
+    """A non-existent --file path is a usage error (exit 2). No HTTP at all."""
+    print("\n[upload] missing --file path exits 2")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, _, err = run("upload", "--workspace", "w",
+                         "--file", str(tmp / "does-not-exist.txt"),
+                         env=make_env(tmp))
+        case("returns 2", rc == 2, f"rc={rc} stderr={err!r}")
+        case("stderr names the path",
+             "does-not-exist.txt" in err, err[:200])
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_upload_step1_error_short_circuits():
+    """If files.getUploadURLExternal returns ok:false, the PUT and
+    completeUploadExternal calls must not happen — verified by passing
+    only one fixture: a second http_post would exhaust it and raise."""
+    print("\n[upload] step-1 error short-circuits the flow")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        f = tmp / "hello.txt"
+        f.write_text("hi")
+        rc, out, err = run("upload", "--workspace", "w", "--file", str(f),
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {}, "body":
+                                {"ok": False, "error": "missing_scope",
+                                 "needed": "files:write", "provided": "chat:write"}},
+                           ]))
+        case("returns 1", rc == 1, f"rc={rc} stderr={err!r}")
+        case("stderr names the scope hint",
+             "files:write" in err, err[:300])
+        body = json.loads(out)
+        case("stdout carries the error body",
+             body.get("error") == "missing_scope", out)
+    finally:
+        shutil.rmtree(tmp)
+
+
 # --------------------------------------------------------------------- runner
 
 

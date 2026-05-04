@@ -302,6 +302,38 @@ def http_post(method: str, params: dict, token: str,
     raise TransportError(f"unreachable: retry loop exited for {method}")
 
 
+def http_put_bytes(url: str, data: bytes, *, debug_log=None) -> int:
+    """PUT raw bytes to url. Returns HTTP status (no body interpretation).
+
+    Used for the middle step of files.getUploadURLExternal → PUT → complete.
+    The URL is a short-lived AWS-signed URL; no Authorization header is
+    required and we don't add one. Honors SLACK_SKILL_TEST_RESPONSES.
+    """
+    fixture = _consume_test_fixture()
+    if fixture is not None:
+        if debug_log:
+            debug_log(f"PUT (test fixture) status={fixture['status']}")
+        return fixture["status"]
+
+    req = urllib.request.Request(url, data=data, method="PUT",
+                                 headers={"Content-Length": str(len(data))})
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=DEFAULT_READ_TIMEOUT) as resp:
+            status = resp.getcode()
+    except urllib.error.HTTPError as e:
+        status = e.code
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise TransportError(f"transport error during upload PUT: {e}") from e
+    elapsed = time.monotonic() - started
+
+    if debug_log:
+        # Strip the query string — it contains the AWS signature.
+        host = url.split("?", 1)[0]
+        debug_log(f"PUT {host} status={status} elapsed={elapsed:.2f}s")
+    return status
+
+
 # ---- Slack API error interpretation -----------------------------------------
 
 
@@ -762,6 +794,95 @@ def cmd_doctor(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_upload(args) -> int:
+    """Upload a file to Slack via the modern 3-call flow.
+
+    Internally orchestrates files.getUploadURLExternal → PUT bytes →
+    files.completeUploadExternal so the caller writes one command instead
+    of three. The deprecated single-call multipart files.upload is not
+    supported.
+    """
+    cfg = load_config()
+    try:
+        name, token = resolve_token(cfg, args.workspace)
+    except ConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 5
+
+    file_path = Path(args.file)
+    if not file_path.is_file():
+        print(f"--file: not a file: {file_path}", file=sys.stderr)
+        return 2
+    try:
+        data = file_path.read_bytes()
+    except OSError as e:
+        print(f"--file: read failed: {e}", file=sys.stderr)
+        return 2
+
+    filename = args.filename or file_path.name
+    debug = (lambda msg: print(msg, file=sys.stderr)) if args.debug else None
+
+    # Step 1: ask Slack where to PUT the bytes.
+    try:
+        _s, _h, body = http_post(
+            "files.getUploadURLExternal",
+            {"filename": filename, "length": len(data)},
+            token, debug_log=debug,
+        )
+    except TransportError as e:
+        print(f"transport error: {redact(str(e))}", file=sys.stderr)
+        return 3
+    if not body.get("ok"):
+        print(json.dumps(body, separators=(",", ":")))
+        print(format_slack_error("files.getUploadURLExternal", name, body),
+              file=sys.stderr)
+        return 1
+    upload_url = body.get("upload_url")
+    file_id = body.get("file_id")
+    if not upload_url or not file_id:
+        print("unexpected response from files.getUploadURLExternal: "
+              "missing upload_url or file_id", file=sys.stderr)
+        return 3
+
+    # Step 2: PUT the bytes to the signed URL.
+    try:
+        status = http_put_bytes(upload_url, data, debug_log=debug)
+    except TransportError as e:
+        print(f"transport error during upload: {e}", file=sys.stderr)
+        return 3
+    if status >= 400:
+        print(f"upload PUT failed (status={status})", file=sys.stderr)
+        return 3
+
+    # Step 3: tell Slack the upload is done and (optionally) share it.
+    file_entry = {"id": file_id, "title": args.title or filename}
+    if args.alt_text:
+        file_entry["alt_text"] = args.alt_text
+    complete_params: dict = {"files": [file_entry]}
+    if args.channel:
+        complete_params["channel_id"] = args.channel
+    if args.initial_comment:
+        complete_params["initial_comment"] = args.initial_comment
+    if args.thread_ts:
+        complete_params["thread_ts"] = args.thread_ts
+
+    try:
+        _s, _h, body = http_post(
+            "files.completeUploadExternal", complete_params,
+            token, debug_log=debug,
+        )
+    except TransportError as e:
+        print(f"transport error: {redact(str(e))}", file=sys.stderr)
+        return 3
+
+    print(json.dumps(body, separators=(",", ":")))
+    if not body.get("ok"):
+        print(format_slack_error("files.completeUploadExternal", name, body),
+              file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="slack.py",
@@ -814,6 +935,35 @@ def build_parser() -> argparse.ArgumentParser:
     # doctor
     pd = sub.add_parser("doctor", help="End-to-end self-check")
     pd.set_defaults(func=cmd_doctor)
+
+    # upload
+    pu = sub.add_parser(
+        "upload",
+        help="Upload a file via the modern 3-call flow",
+        description=(
+            "Orchestrates files.getUploadURLExternal → PUT bytes → "
+            "files.completeUploadExternal. Without --channel, the file is "
+            "uploaded but not shared anywhere — the user is the only one "
+            "who can see it via files.list."
+        ),
+    )
+    pu.add_argument("--workspace", default=None)
+    pu.add_argument("--file", required=True, help="Local path of the file to upload")
+    pu.add_argument("--filename", default=None,
+                    help="Override the displayed filename (default: basename of --file)")
+    pu.add_argument("--channel", default=None,
+                    help="Channel/DM ID to share the file in (omit to keep private)")
+    pu.add_argument("--title", default=None,
+                    help="File title (default: filename)")
+    pu.add_argument("--initial-comment", dest="initial_comment", default=None,
+                    help="Optional comment posted alongside the file")
+    pu.add_argument("--thread-ts", dest="thread_ts", default=None,
+                    help="If set, share into the thread rooted at this ts")
+    pu.add_argument("--alt-text", dest="alt_text", default=None,
+                    help="Accessibility alt text (images)")
+    pu.add_argument("--debug", action="store_true",
+                    help="Log HTTP requests to stderr (tokens redacted).")
+    pu.set_defaults(func=cmd_upload)
 
     return p
 

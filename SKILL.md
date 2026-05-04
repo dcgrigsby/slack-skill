@@ -112,6 +112,15 @@ python3 scripts/slack.py auth test --workspace <name>     # auth.test against th
 python3 scripts/slack.py auth remove --workspace <name>
 ```
 
+For file uploads, use the dedicated `upload` subcommand — it orchestrates Slack's modern 3-call flow (`files.getUploadURLExternal` → PUT bytes → `files.completeUploadExternal`) so you don't have to chain them yourself. Requires `files:write`.
+
+```bash
+python3 scripts/slack.py upload --file ./report.pdf --channel C0123 \
+  --title "Q4 report" --initial-comment "Latest draft."
+```
+
+Without `--channel`, the file uploads but isn't shared anywhere (only the user can see it via `files.list`). For threads, also pass `--thread-ts <ts>`. The deprecated single-call `files.upload` is not supported — don't try to invoke it via `call`.
+
 ### Exit codes
 
 | Code | Meaning |
