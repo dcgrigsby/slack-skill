@@ -3,3 +3,4 @@ __pycache__/
 *.skill
 .test-tmp/
 slack-workspace/
+.claude/

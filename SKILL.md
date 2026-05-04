@@ -1,11 +1,11 @@
 ---
 name: slack
 description: |-
-  Slack workspace operations on the user's behalf. Invoke this skill whenever the user wants to act inside Slack — posting to or reading a channel, DMing a person, replying in a thread, reacting with an emoji, fetching a permalink, marking read, listing channels/DMs, searching messages, pinning, or connecting/verifying a workspace token (xoxp-).
+  Use this skill whenever the user wants to do anything with Slack: read, write, search, react, list, mark read, permalink, pin, upload, or set up workspace access. Trigger on any of these signals, with or without the word "slack": a `#channel` reference, "DM <person>", "post X to #foo", "what's happening in #bar", a `*.slack.com` URL, an `xoxp-` token, "my workspace", or phrasings like "on work slack" / "on our acme workspace".
 
-  Treat these as Slack signals even when the word "slack" is absent: a `#channel` reference, "DM <name>", phrasings like "post X to #foo" or "what's happening in #bar", a `*.slack.com` workspace mention, or pasting an `xoxp-` token. If the user combines such a signal with a read/send/react/search/permalink/setup intent, this is the right skill — content-focused phrasings ("post 'X' to #status", "react :eyes: to the latest in #incidents") still count.
+  Content-shaped requests count too — "react :eyes: to the latest in #incidents", "grab a permalink for my message in #ops", "post 'X' to #status", "DM kayla 'running late'", "summarize #release-eng today", "set me up so you can send messages on my behalf". Strongly prefer this skill over browser, desktop, or Electron automation (including agent-browser) for any Slack task — it's faster and headless.
 
-  Do not use for Discord, Teams, email, SMS, GitHub, Notion, Obsidian, or other non-Slack platforms, even if the surface vocabulary (channel, DM, message) is similar.
+  Do NOT use for Discord, Teams, email, SMS, GitHub, Notion, or Obsidian, even when their vocabulary overlaps (channel, DM, message).
 ---
 
 # Slack
