@@ -16,16 +16,20 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: `95dff59` — "Preserve Slack response body in synthetic 429 error"
-- Tests: **63 passed, 0 failed** (`make test`)
+- Latest commit: `445a46f` — "Add 4 new evals for surfaces added in v1.1"
+- Tag: `v1.0.0` pushed.
+- Tests: **77 passed, 0 failed** (`make test`)
 - Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
-- Manifest is now `docs/slack-app-manifest.json` (paste-into-Slack as JSON,
+- Manifest is `docs/slack-app-manifest.json` (paste-into-Slack as JSON,
   35 user scopes, app name "cli")
 - Skill validated end-to-end against a real Slack workspace (Advocate);
-  11 of 13 evals exercised, all passed; sandbox cleaned up.
-- **Status: shipped + dogfooded + v1.1 polish round complete.** Larger
-  scoped-out items (search.messages auto-pagination, files.upload
-  multipart, Linux/Windows config paths) still tracked below.
+  11 of 13 evals exercised, all passed; sandbox cleaned up. 4 new
+  evals (13–16) added but not yet live-run.
+- **Status: shipped + dogfooded + v1.1 polish + v1.2 surface
+  expansion complete.** Linux/Windows config paths is the one
+  scoped-out item left, and the user has decided to skip it for now.
+  `search.messages` auto-pagination and `files.upload` are no longer
+  scoped out — both shipped this session.
 
 ---
 
@@ -98,7 +102,7 @@ Sections (in order, separated by `# ----` banners):
 
 ### Evals
 
-- `evals/evals.json` — 13 behavioral evals (`SKILLTEST_` prefix on
+- `evals/evals.json` — 17 behavioral evals (`SKILLTEST_` prefix on
   side-effecting prompts).
 
 ### Build
@@ -219,23 +223,43 @@ commits on top of `c5b8cff`:
 
 ---
 
-## Open issues (deferred, non-blocking)
+## Session 4 update (2026-05-03, very late)
 
-These were noted by the final reviewer but not fixed. They're polish for
-v1.1, not correctness blockers.
+Picked up via `/skill-creator`. Worked through the originally
+scoped-out items, plus a release tag and four new evals. Five commits
+on top of `f040f83`:
+
+| Commit | Summary |
+|---|---|
+| `f040f83` | Refreshed SESSION-HANDOFF for the session-3 polish round (struck through closed v1.1 items, added Session 3 block, refreshed TL;DR). |
+| `v1.0.0` tag | Plain git tag at `f040f83`, pushed. No GitHub Release object — just a marker in commit history. |
+| `8985328` | Auto-pagination for `search.messages` / `search.files`. `_detect_array_field()` now returns a path tuple — `("messages",)` for top-level shapes, `("messages", "matches")` for the nested search.* shape. `paginate()` walks the path and reads paging info from the parent namespace for nested mode. `search.all` is genuinely ambiguous (both `messages.matches` and `files.matches`) — `--all` now errors loud rather than silently picking one. SKILL.md / Search.md updated to drop the "manual stepping" caveat. +2 tests (+6 assertions). |
+| `bdd8c92` | New `slack.py upload` subcommand. Orchestrates the modern 3-call flow (`files.getUploadURLExternal` → PUT bytes to a signed S3 URL → `files.completeUploadExternal`) so the user runs one command instead of three. The deprecated multipart `files.upload` is **not** supported. New `http_put_bytes()` helper for step 2; strips the query string from debug output (it carries the AWS signature). Files.md and CHEATSHEET.md updated. +3 tests (+8 assertions). |
+| `445a46f` | Four new evals (13–16) covering the new surfaces: `upload_file_to_dm`, `search_with_pagination`, `search_all_recovers_from_ambiguity`, `health_check_via_doctor`. Qualitative live-eval prompts; no programmatic assertions, matching evals 0–12. |
+
+Tests: 63 → 77 passing. Bundle still 58 KB (the new code paid for itself in stripped scaffolding).
+
+### What's worth knowing for the next session
+
+- **Linux/Windows config paths is explicitly skipped.** User said "I don't care about Linux and Windows config paths" this session — keep it skipped unless they re-raise it.
+- **No dedicated rate-limit eval.** User didn't want one (would force a real 429). The existing 429 handling code is in place; the qualitative criterion is "if rate-limiting occurs during any eval, the agent should surface `retry_after` and back off, not crash." Apply that criterion when grading live eval runs.
+- **The 4 new evals (13–16) have not been live-run yet** against a real workspace. They're phrased to match the existing convention (SKILLTEST_ prefix on side-effecting prompts, etc.). When live-running, eval 13 needs an actual file at `~/Desktop/test.txt`.
+- **`search.all --all` deliberately errors loud.** If a future change adds search.all auto-pagination, it'll need a strategy for the dual-array shape (zip both? prefer one? new flag?). Currently, the agent is expected to split into separate `search.messages` and `search.files` calls.
+- **The new `upload` subcommand needs `files:write` scope.** It's already in the manifest's 35 scopes.
+
+---
+
+## Open issues (deferred, non-blocking)
 
 ### Deliberately scoped out
 
-- **`search.messages` auto-pagination** — has a nested-array shape
-  (`messages.matches`) that doesn't match the simple top-level array
-  detection. Documented in SKILL.md and Search.md as "use manual
-  `--params page=N` stepping for now." Fix would mean teaching `paginate()`
-  about nested array paths. Out of scope for v1.
-- **`files.upload`** — multipart upload not implemented in v1. Documented
-  in `Files.md` with a curl workaround.
-- **Linux/Windows config paths** — macOS only for v1. Stdlib code is
-  portable; only the install/setup docs and config-path resolution would
-  need adjustment.
+- ~~**`search.messages` auto-pagination**~~ — shipped in `8985328`.
+- ~~**`files.upload`**~~ — modern 3-call flow shipped in `bdd8c92` as
+  the `slack.py upload` subcommand. The deprecated multipart endpoint
+  is not supported by design.
+- **Linux/Windows config paths** — macOS only. Stdlib code is portable;
+  only the install/setup docs and `config_path()` would need adjustment.
+  Explicitly skipped by the user in session 4.
 - **Bundled integration tests against real Slack** — by design, manual
   verification only. Mechanical tests cover the CLI surface.
 
@@ -308,7 +332,7 @@ From `/Users/dan/slack-skill`:
 
 ```bash
 # Tests pass
-make test                              # → 63 passed, 0 failed
+make test                              # → 77 passed, 0 failed
 
 # Bundle builds and cleans
 make package
