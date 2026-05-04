@@ -235,6 +235,32 @@ def test_http_nested_params_json_stringified():
         shutil.rmtree(tmp)
 
 
+def test_call_transport_error_exits_3():
+    """A transport-layer failure should exit 3 with a redacted stderr message.
+
+    Simulated by exhausting the test fixture: the http_post path raises
+    TransportError when SLACK_SKILL_TEST_RESPONSES is set but empty,
+    exercising the same except branch as a real urlopen failure.
+    """
+    print("\n[http] transport error exits 3")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "auth.test", "--workspace", "w",
+                           env=make_env(tmp, responses=[]))
+        case("returns 3", rc == 3, f"rc={rc} stderr={err!r}")
+        case("stderr names transport error", "transport error" in err.lower(), err[:200])
+        case("stdout empty", out == "", repr(out))
+        case("token not in stderr", "xoxp-x" not in err, err[:200])
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ------------------------------------------------------------- slack errors
 
 
