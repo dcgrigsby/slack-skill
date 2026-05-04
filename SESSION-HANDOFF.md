@@ -16,7 +16,7 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: `26b8f75` — "Tune SKILL.md description from desc-opt iteration 2"
+- Latest commit: `7afe9de` — "Update SESSION-HANDOFF for session 6 (desc-opt loop, memory correction)"
 - Tag: `v1.0.0` pushed.
 - Tests: **80 passed, 0 failed** (`make test`)
 - Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
