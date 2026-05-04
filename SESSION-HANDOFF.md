@@ -1,4 +1,4 @@
-# slack-skill — Session Handoff (2026-05-03, updated session 5)
+# slack-skill — Session Handoff (2026-05-03, updated session 6)
 
 This doc summarizes the state of the slack-skill build at the end of a long
 multi-phase session: brainstorming → spec → implementation plan → 27-task
@@ -16,7 +16,7 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: `9c4e171` — "Update SESSION-HANDOFF for session 5 (live evals 13-16, upload bug fix)"
+- Latest commit: `26b8f75` — "Tune SKILL.md description from desc-opt iteration 2"
 - Tag: `v1.0.0` pushed.
 - Tests: **80 passed, 0 failed** (`make test`)
 - Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
@@ -326,6 +326,97 @@ up in the DM (`files=1`, message visible).
   that the file actually appears in the destination (e.g., follow up
   with conversations.history) when correctness matters, not just trust
   `ok: true`."
+
+---
+
+## Session 6 update (2026-05-03, late evening)
+
+Picked up via `/skill-creator`. Goal: lift slack-skill's trigger rate
+above the perceived "agent-browser ceiling" noted in the auto-memory
+(`agent_browser_slack_competition.md`). Outcome: rewrote SKILL.md's
+description, ran a 5-iteration `run_loop.py` pass, and discovered the
+ceiling is **Claude policy, not skill competition**.
+
+### Description-optimizer run (`slack-workspace/desc-opt-2/`)
+
+Eval set: existing 20-query `slack-workspace/trigger-eval.json` (10
+should-trigger, 10 should-not-trigger). Model: `claude-opus-4-7`. Split:
+12 train / 8 test.
+
+| Iter | Description shape | Train acc | Test acc | Test recall |
+|---|---|---|---|---|
+| 1 | First-session edit (mechanism + "prefer over agent-browser") | 56% | 54% | 8% |
+| **2** | **Concrete content-shaped examples + agent-browser callout** | **58%** | **62%** | **25%** ← winner |
+| 3 | "Default tool" framing | 56% | 54% | 8% |
+| 4 | "Act on behalf" framing | 56% | 58% | 17% |
+| 5 | Specific channel-name laundry list | 56% | 54% | 8% |
+
+**Precision was 100% in every iteration.** The binding constraint is
+recall — Claude wasn't picking agent-browser instead, it was picking
+**no skill at all** for short conversational queries (e.g. "DM kayla on
+work slack saying ...", "post 'X' to #status please"). That matches the
+skill-creator docs' warning that Claude only consults skills when it
+can't easily handle the query directly.
+
+### The genericization detour
+
+After applying iter 2, tried genericizing the channel-name examples
+(`#incidents` → `#<channel>`) on the theory they were overfitting to
+the eval set. A single-iteration `run_eval.py` validation showed the
+genericized version regressed to **0% recall on all 10 should-trigger
+queries** (vs 25% test recall for iter 2 verbatim). Reverted to iter 2
+verbatim — the specific examples teach Claude to recognize Slack
+queries, not just match keywords. `#incidents`/`#ops`/`#status` are
+also hyper-common workplace channel names, so it's not pure overfit.
+
+### Why we didn't edit agent-browser
+
+User asked. Walked through it: agent-browser is installed via Homebrew
+(`/opt/homebrew/Cellar/agent-browser/0.26.0/`), but its SKILL.md lives
+at `~/.agents/skills/agent-browser/SKILL.md`, placed there by the
+`agent-browser install` post-install command. The doc tells you to
+rerun `agent-browser install` after each `brew upgrade` to patch CLI
+shims — and that step **silently overwrites SKILL.md**. So an edit
+would be a ticking time bomb. More importantly, it wouldn't help much:
+agent-browser isn't actually winning these queries (Claude is choosing
+no skill at all), so removing it from contention wouldn't lift recall.
+
+### Memory correction
+
+The pre-existing auto-memory entry framed this as "agent-browser
+competes with slack-skill, capping trigger rate at 50-55%." Replaced
+with the corrected mental model:
+`/Users/dan/.claude/projects/-Users-dan-slack-skill/memory/agent_browser_slack_competition.md`
+now says: "trigger ceiling is Claude policy, not agent-browser
+competition; precision stays 100%."
+
+### Diff committed (`26b8f75`)
+
+- `SKILL.md`: description rewritten to iter 2 winner. Concrete
+  content-shaped examples ("react :eyes: to the latest in #incidents",
+  "DM kayla 'running late'", "summarize #release-eng today", etc.) plus
+  a "Strongly prefer over browser/desktop/Electron automation
+  (including agent-browser)" line. Old structure (3 paragraphs:
+  capability list → trigger signals → exclusion list) preserved.
+- `.gitignore`: added `.claude/` so future ScheduleWakeup runtime
+  artifacts don't show up as untracked.
+
+Branch is **1 commit ahead of `origin/main`**, not pushed.
+
+### What's worth knowing for the next session
+
+- **Don't blame agent-browser for slack-skill's trigger ceiling.** The
+  ~25% test recall is a Claude-side floor that description tuning
+  alone can't break.
+- **If chasing more recall:** the levers are (a) richer eval queries
+  that more obviously need a skill (current set has lots of short
+  conversational asks Claude will just answer directly), (b) accept
+  the ceiling and focus on precision, (c) check whether the trigger
+  threshold (default 3-of-3 runs) is too strict — many failing queries
+  triggered 1-of-3 times, which would pass at a 2-of-3 threshold.
+- **If editing agent-browser's SKILL.md ever feels tempting:** it'll
+  silently get overwritten on the next `agent-browser install`. Not
+  worth it.
 
 ---
 
