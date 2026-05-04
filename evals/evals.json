@@ -78,6 +78,30 @@
       "name": "cross_skill",
       "prompt": "Post the result of my OmniFocus weekly review to #status.",
       "expected_output": "An OmniFocus query for completed-this-week tasks, formatted into a message body, then posted to #status via chat.postMessage."
+    },
+    {
+      "id": 13,
+      "name": "upload_file_to_dm",
+      "prompt": "SKILLTEST_ Upload ~/Desktop/test.txt to my DM with myself with title 'Test upload'.",
+      "expected_output": "A single `slack.py upload --file ~/Desktop/test.txt --channel <self-DM-id> --title 'Test upload'` call. The agent must NOT attempt `call files.upload` (deprecated, unsupported) or hand-roll the 3-call flow — the dedicated subcommand is the right tool."
+    },
+    {
+      "id": 14,
+      "name": "search_with_pagination",
+      "prompt": "Find every message containing 'standup' from the past 90 days across the workspaces I have access to.",
+      "expected_output": "A `search.messages --all` call with a query like 'standup after:<date 90d ago>'. Auto-pagination should walk messages.matches across pages without manual `page=` stepping. A flat ranked or chronological summary follows."
+    },
+    {
+      "id": 15,
+      "name": "search_all_recovers_from_ambiguity",
+      "prompt": "Search across both messages and files for anything matching 'release notes'.",
+      "expected_output": "An attempt at `search.all --all` returns the new ambiguous-shape error (search.all has both messages.matches and files.matches). The agent recognizes this and recovers — either by issuing two separate `search.messages --all` and `search.files --all` calls, or by dropping `--all` and stepping `page` manually on `search.all`. Not retried blindly."
+    },
+    {
+      "id": 16,
+      "name": "health_check_via_doctor",
+      "prompt": "Is my Slack setup OK?",
+      "expected_output": "A single `slack.py doctor` call, with the output (Python version, config mode, per-workspace auth.test results) summarized for the user. The agent should NOT reinvent the checks by individually calling auth.test, stat'ing the config file, etc."
     }
   ]
 }
