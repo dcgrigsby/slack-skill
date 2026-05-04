@@ -2,8 +2,10 @@
 """
 package_skill.py — build a .skill bundle for distribution.
 
-Tars the skill files (SKILL.md, scripts/, docs/, evals/, LICENSE,
-NOTICE, README.md) into <skill-name>.skill at the repo root.
+Tars the runtime skill files into <skill-name>.skill at the repo root.
+Dev-only artifacts (test_slack.py, regen_reference.py, this script,
+docs/plans/, docs/specs/) are deliberately excluded — they exist for
+maintainers, not users.
 
 Usage:
   python3 scripts/package_skill.py <repo-root>
@@ -20,8 +22,9 @@ INCLUDE = [
     "README.md",
     "LICENSE",
     "NOTICE",
-    "scripts",
-    "docs",
+    "scripts/slack.py",
+    "docs/slack-api",
+    "docs/slack-app-manifest.json",
     "evals",
 ]
 
