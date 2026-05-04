@@ -270,10 +270,20 @@ def http_post(method: str, params: dict, token: str,
             if 0 < retry_after <= 30:
                 time.sleep(retry_after)
                 continue
-            raise SlackAPIError(
-                {"ok": False, "error": "ratelimited", "retry_after": retry_after},
-                method,
-            )
+            # Preserve any fields Slack returned in the body (warnings,
+            # response_metadata, etc.) and overlay the canonical markers.
+            try:
+                body_dict = json.loads(raw) if raw else {}
+                if not isinstance(body_dict, dict):
+                    body_dict = {}
+            except json.JSONDecodeError:
+                body_dict = {}
+            body_dict.update({
+                "ok": False,
+                "error": "ratelimited",
+                "retry_after": retry_after,
+            })
+            raise SlackAPIError(body_dict, method)
 
         if not raw:
             raise TransportError(f"empty body from {method} (status={status})")
