@@ -70,8 +70,8 @@
     {
       "id": 11,
       "name": "error_recovery_not_in_channel",
-      "prompt": "Read #private-im-not-in.",
-      "expected_output": "A first attempt that returns not_in_channel, followed by a clear explanation that the user is not a member and a suggestion to join or pick a different channel — not retried blindly."
+      "prompt": "Read the latest in #announcements-im-not-in (a public channel I haven't joined).",
+      "expected_output": "A first attempt that returns not_in_channel, followed by a clear explanation that the user is not a member of that public channel and an offer to call conversations.join or pick a different channel — not retried blindly."
     },
     {
       "id": 12,
