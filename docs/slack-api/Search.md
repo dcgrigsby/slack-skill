@@ -127,21 +127,26 @@ replaced by canvas) — almost always empty. Iterate the `messages` and
 
 `page` starts at 1. The response carries pagination state at
 `messages.pagination.page_count` (or `files.pagination`,
-`messages.paging.pages`). With `--all`, slack.py increments `page`
-until exhausted.
+`messages.paging.pages`). With `--all`, slack.py walks the nested
+`messages.matches` / `files.matches` array and increments `page` until
+exhausted, returning a flat `{ok, items, page_count}` envelope.
 
-Manual loop:
-```bash
-for p in 1 2 3; do
-  python3 scripts/slack.py call search.messages \
-    --params "{\"query\":\"deploy\",\"page\":$p,\"count\":100}"
-done
-```
-
-The `--all` flag is much simpler:
 ```bash
 python3 scripts/slack.py call search.messages \
   --params '{"query":"deploy","count":100}' --all --limit 1000
+```
+
+`search.all` is the exception. It returns both `messages.matches` and
+`files.matches`, which is genuinely ambiguous — `--all` errors out
+rather than silently picking one. To paginate `search.all`, either
+iterate each namespace separately (`search.messages` / `search.files`),
+or step `page` manually:
+
+```bash
+for p in 1 2 3; do
+  python3 scripts/slack.py call search.all \
+    --params "{\"query\":\"deploy\",\"page\":$p,\"count\":100}"
+done
 ```
 
 ## Common errors

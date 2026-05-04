@@ -474,6 +474,77 @@ def test_call_all_page_based_merges_pages():
         shutil.rmtree(tmp)
 
 
+def test_call_all_search_messages_merges_nested_matches():
+    """search.messages keeps results at messages.matches and paging info at
+    messages.paging — auto-pagination should walk the nested path."""
+    print("\n[paginate] --all merges nested search.messages matches")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, out, err = run("call", "search.messages", "--workspace", "w",
+                           "--params", '{"query":"deploy","count":2}', "--all",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True, "query": "deploy",
+                                         "messages": {
+                                             "total": 3,
+                                             "paging": {"count": 2, "total": 3,
+                                                        "page": 1, "pages": 2},
+                                             "matches": [{"ts": "1", "text": "a"},
+                                                         {"ts": "2", "text": "b"}],
+                                         }}},
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True, "query": "deploy",
+                                         "messages": {
+                                             "total": 3,
+                                             "paging": {"count": 1, "total": 3,
+                                                        "page": 2, "pages": 2},
+                                             "matches": [{"ts": "3", "text": "c"}],
+                                         }}},
+                           ]))
+        case("returns 0", rc == 0, err)
+        body = json.loads(out)
+        case("merged 3 matches across 2 pages",
+             len(body.get("items", [])) == 3, out)
+        case("page_count is 2", body.get("page_count") == 2, out)
+        case("preserved match identity in order",
+             [m.get("ts") for m in body.get("items", [])] == ["1", "2", "3"], out)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_call_all_search_all_rejects_ambiguous_shape():
+    """search.all has both messages.matches and files.matches. The caller
+    can't safely pick one, so --all should fail loud rather than guess."""
+    print("\n[paginate] --all on ambiguous shape (search.all) errors")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, _, err = run("call", "search.all", "--workspace", "w",
+                         "--params", '{"query":"deploy"}', "--all",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True,
+                                       "messages": {"matches": [{"ts": "1"}]},
+                                       "files": {"matches": [{"id": "F1"}]}}},
+                         ]))
+        case("returns 2", rc == 2, f"rc={rc} stderr={err!r}")
+        case("stderr explains ambiguity",
+             "search.all" in err or "ambiguous" in err.lower(), err[:300])
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ----------------------------------------------------------------------- doctor
 
 

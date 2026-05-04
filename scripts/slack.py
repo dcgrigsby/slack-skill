@@ -358,12 +358,27 @@ def format_slack_error(method: str, workspace: str, response: dict) -> str:
 # ---- pagination -------------------------------------------------------------
 
 
-def _detect_array_field(page: dict) -> str | None:
-    """Return the single top-level array field name, or None."""
+def _detect_array_field(page: dict) -> tuple[str, ...] | None:
+    """Return the path to the single iterable array, or None if ambiguous.
+
+    Top-level arrays return a 1-tuple, e.g. ``("messages",)`` or ``("files",)``.
+    Nested ``{parent: {matches: [...]}}`` shapes (the search.* family)
+    return a 2-tuple like ``("messages", "matches")``.
+
+    Returns None when there's no array, multiple top-level arrays, or
+    multiple nested-match arrays (e.g. search.all has both
+    messages.matches and files.matches — the caller can't safely pick).
+    """
     arrays = [k for k, v in page.items()
               if isinstance(v, list) and k != "response_metadata"]
     if len(arrays) == 1:
-        return arrays[0]
+        return (arrays[0],)
+    if len(arrays) > 1:
+        return None
+    nested = [(k, "matches") for k, v in page.items()
+              if isinstance(v, dict) and isinstance(v.get("matches"), list)]
+    if len(nested) == 1:
+        return nested[0]
     return None
 
 
@@ -372,9 +387,11 @@ def paginate(method: str, params: dict, token: str, *,
     """Call method repeatedly with cursor or page until exhausted or limit hit.
 
     Returns {"ok": True, "items": [...], "page_count": N}.
-    Supports cursor-based pagination (response_metadata.next_cursor) and
+    Supports cursor-based pagination (response_metadata.next_cursor),
     simple page-based pagination (top-level 'paging' object with 'page'
-    and 'pages').
+    and 'pages'), and nested page-based pagination for search.* methods
+    where matches live at e.g. messages.matches and paging info at
+    messages.paging.
     Raises SlackAPIError on ok:false; TransportError on transport failure.
     """
     items: list = []
@@ -382,6 +399,7 @@ def paginate(method: str, params: dict, token: str, *,
     cursor = ""
     page_num = 1  # for page-based methods; ignored for cursor-based
     use_page_mode: bool | None = None  # None until first response inspected
+    array_path: tuple[str, ...] | None = None  # cached after first response
 
     while True:
         page_params = dict(params)
@@ -394,30 +412,39 @@ def paginate(method: str, params: dict, token: str, *,
             raise SlackAPIError(body, method)
         page_count += 1
 
-        # Determine pagination mode from first response.
-        if use_page_mode is None:
-            paging = body.get("paging")
-            if isinstance(paging, dict) and "pages" in paging:
+        if array_path is None:
+            array_path = _detect_array_field(body)
+            if array_path is None:
+                raise ValueError(
+                    "cannot auto-detect array field for --all; pass without --all "
+                    "and paginate manually using response_metadata.next_cursor "
+                    "or paging.page (search.all returns both messages.matches "
+                    "and files.matches and is therefore ambiguous — iterate each "
+                    "namespace separately with search.messages or search.files)"
+                )
+            # Determine pagination mode from first response.
+            if len(array_path) > 1:
+                # Nested search.* shape — always page-based.
                 use_page_mode = True
             else:
-                use_page_mode = False
+                paging = body.get("paging")
+                use_page_mode = isinstance(paging, dict) and "pages" in paging
 
-        field = _detect_array_field(body)
-        if field is None:
-            raise ValueError(
-                "cannot auto-detect array field for --all; pass without --all "
-                "and paginate manually using response_metadata.next_cursor "
-                "or paging.page (this method may have a nested array shape "
-                "such as search.messages — those aren't auto-supported in v1)"
-            )
-        items.extend(body[field])
+        node = body
+        for seg in array_path:
+            node = node[seg]
+        items.extend(node)
 
         if limit is not None and len(items) >= limit:
             items = items[:limit]
             break
 
         if use_page_mode:
-            paging = body.get("paging", {})
+            if len(array_path) > 1:
+                # search.* keeps paging info under the parent namespace.
+                paging = body.get(array_path[0], {}).get("paging", {})
+            else:
+                paging = body.get("paging", {})
             total_pages = paging.get("pages", 0)
             if page_num >= total_pages:
                 break
