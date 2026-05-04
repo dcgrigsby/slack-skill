@@ -1,4 +1,4 @@
-# slack-skill — Session Handoff (2026-05-03, updated session 3)
+# slack-skill — Session Handoff (2026-05-03, updated session 5)
 
 This doc summarizes the state of the slack-skill build at the end of a long
 multi-phase session: brainstorming → spec → implementation plan → 27-task
@@ -16,15 +16,16 @@ below for diffs.
 
 - Repo: https://github.com/dcgrigsby/slack-skill (public, Apache 2.0)
 - Branch: `main`, working tree clean, all commits pushed.
-- Latest commit: `445a46f` — "Add 4 new evals for surfaces added in v1.1"
+- Latest commit: TBD (session 5 in progress).
 - Tag: `v1.0.0` pushed.
-- Tests: **77 passed, 0 failed** (`make test`)
+- Tests: **80 passed, 0 failed** (`make test`)
 - Bundle: `make package` produces `slack-skill.skill` (~58 KB, dev-only artifacts excluded)
 - Manifest is `docs/slack-app-manifest.json` (paste-into-Slack as JSON,
   35 user scopes, app name "cli")
 - Skill validated end-to-end against a real Slack workspace (Advocate);
-  11 of 13 evals exercised, all passed; sandbox cleaned up. 4 new
-  evals (13–16) added but not yet live-run.
+  evals 1–11 exercised in session 2, evals 13–16 exercised in session 5
+  (3 passed clean, 1 surfaced and fixed a real upload bug — see session 5
+  block). Sandbox channels archived, test files deleted.
 - **Status: shipped + dogfooded + v1.1 polish + v1.2 surface
   expansion complete.** Linux/Windows config paths is the one
   scoped-out item left, and the user has decided to skip it for now.
@@ -246,6 +247,85 @@ Tests: 63 → 77 passing. Bundle still 58 KB (the new code paid for itself in st
 - **The 4 new evals (13–16) have not been live-run yet** against a real workspace. They're phrased to match the existing convention (SKILLTEST_ prefix on side-effecting prompts, etc.). When live-running, eval 13 needs an actual file at `~/Desktop/test.txt`.
 - **`search.all --all` deliberately errors loud.** If a future change adds search.all auto-pagination, it'll need a strategy for the dual-array shape (zip both? prefer one? new flag?). Currently, the agent is expected to split into separate `search.messages` and `search.files` calls.
 - **The new `upload` subcommand needs `files:write` scope.** It's already in the manifest's 35 scopes.
+
+---
+
+## Session 5 update (2026-05-03, even later)
+
+Picked up via `/skill-creator`. Live-ran the four evals from session 4
+(13–16). Three passed clean. Eval 13 surfaced a real bug in the upload
+subcommand and the session became "find the bug, fix it, regression-guard
+it, re-verify."
+
+### Eval results
+
+| Eval | Result | Notes |
+|---|---|---|
+| 16 (doctor) | ✅ | Single `slack.py doctor` call; three OK lines (Python ≥3.9, config 0600, Advocate auth.test). |
+| 14 (search pagination) | ✅ | `search.messages --all` over 90 days. Forced multi-page with `count=2` to actually exercise the nested-array walk: 5 items merged across 3 pages. |
+| 15 (search.all ambiguity) | ✅ | `search.all --all` errors loud with exit 2 and the recovery hint. Recovery via two split calls (`search.messages` + `search.files`) returned 25 + 0 hits cleanly. |
+| 13 (upload to DM) | ✅ **after fix** | First run: `ok=true` returned but file never appeared in the DM. Diagnostic revealed step 2 was silently failing. See bug fix below. |
+
+### The upload bug
+
+`slack.py upload` was broken since it shipped in session 4 (commit
+`bdd8c92`). The fixture-based unit tests passed; live behavior didn't.
+
+**Root cause.** `http_put_bytes()` did `PUT` with raw bytes. Slack's
+upload endpoint requires `POST` with `multipart/form-data` (field
+name `"file"`). A raw PUT is silently rejected with a `302` redirect
+to `https://slack.com`. Two compounding factors hid this:
+
+1. The status check was `if status >= 400`, so the 302 passed through
+   as "success."
+2. Slack's `files.completeUploadExternal` returns `ok: true` on metadata
+   alone — the file_id was registered in step 1 with the declared length,
+   so step 3 succeeds in producing a "phantom" file with no actual bytes
+   and no shares. The `channels`/`ims`/`shares` fields are all empty in
+   the response, but a casual reader sees `"ok": true` and moves on.
+
+**Fix** (in this session, not yet committed at time of writing):
+- Renamed `http_put_bytes` → `http_upload_to_url`. Sends `POST` with
+  multipart/form-data body, field name `file`, plus the filename header.
+- Added `import uuid` for boundary generation.
+- Tightened the caller's status check to `not (200 <= status < 300)`,
+  with a comment explaining why 3xx must be treated as failure.
+- Added regression test `test_upload_step2_3xx_treated_as_failure`
+  (+3 assertions) — passes a synthetic `status: 302` fixture for step 2
+  and asserts exit 3, "upload failed" in stderr, and that step 3 is
+  never invoked (would exhaust the fixture queue).
+- Updated SKILL.md, Files.md, CHEATSHEET.md to say "POST multipart"
+  instead of "PUT bytes."
+
+Tests: 77 → 80 passing. Live re-test of eval 13: file now actually shows
+up in the DM (`files=1`, message visible).
+
+### What's worth knowing for the next session
+
+- **Fixture-uncovered code paths are dangerous.** The PUT/POST step in
+  `http_upload_to_url` is short-circuited by `_consume_test_fixture` —
+  unit tests can verify orchestration but never see the real wire shape.
+  This is the same gap noted for the 429/5xx retry loop in session 3.
+  Worth thinking about a deeper integration harness (mock HTTP server)
+  if more wire-level bugs surface.
+- **`files.completeUploadExternal` returns ok on metadata alone.** Even
+  if the bytes never arrived, step 3 returns `ok: true` with `channels:
+  []` and `shares: {}`. The agent should treat empty `shares` as a yellow
+  flag when a `--channel` was passed — though the CLI itself doesn't
+  surface this today (could be a future enhancement: warn if `channels`
+  is empty when user asked to share to a channel).
+- **`files.delete` on a phantom file_id returns non-JSON.** Cleanup of
+  the diagnostic test files raised JSONDecodeError on the file_ids whose
+  PUTs had 302'd. Not a bug worth fixing — those file_ids are garbage-
+  collected by Slack within hours anyway.
+- **Sandbox channel was `skill-sandbox-2` (`C0B1DSE5RBL`).** Archived
+  at end of session.
+- **Eval 13 expectation update worth considering.** The existing
+  expected_output says "the agent must NOT attempt `call files.upload`."
+  Worth adding a parallel expectation: "the agent should sanity-check
+  that the file actually appears in the destination (e.g., follow up
+  with conversations.history) when correctness matters, not just trust
+  `ok: true`."
 
 ---
 
