@@ -297,7 +297,7 @@ def http_post(method: str, params: dict, token: str,
 
 HINTS = {
     "missing_scope": (
-        "needed: {needed}; provided: {provided}\n"
+        "needs: {needed}; current: {provided}\n"
         "hint: reinstall the app with the missing scope, then refresh the token "
         "(slack.py auth add --workspace <name> --token xoxp-...)"
     ),
