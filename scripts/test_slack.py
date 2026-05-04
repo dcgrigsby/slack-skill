@@ -626,7 +626,7 @@ def test_resolve_expands_user_label_inline():
 
 
 def test_resolve_falls_back_on_lookup_failure():
-    """Lookup failure → readable @U07ABC, rest of message intact."""
+    """Lookup failure → readable @U07ABC, rest of message intact, stderr summary."""
     print("\n[resolve] fallback on users.info failure")
     tmp = make_tmp()
     try:
@@ -636,18 +636,86 @@ def test_resolve_falls_back_on_lookup_failure():
                  {"ok": True, "user_id": "U", "user": "u",
                   "team_id": "T", "team": "Team"}},
             ]))
-        rc, out, _ = run("call", "conversations.history", "--workspace", "w",
-                         "--params", '{"channel":"C1"}', "--resolve",
-                         env=make_env(tmp, responses=[
-                             {"status": 200, "headers": {},
-                              "body": {"ok": True, "messages": [{"text": "hi <@U07ABC>"}]}},
-                             {"status": 200, "headers": {},
-                              "body": {"ok": False, "error": "user_not_found"}},
-                         ]))
+        rc, out, err = run("call", "conversations.history", "--workspace", "w",
+                           "--params", '{"channel":"C1"}', "--resolve",
+                           env=make_env(tmp, responses=[
+                               {"status": 200, "headers": {},
+                                "body": {"ok": True, "messages": [{"text": "hi <@U07ABC>"}]}},
+                               {"status": 200, "headers": {},
+                                "body": {"ok": False, "error": "user_not_found"}},
+                           ]))
         case("returns 0", rc == 0)
         body = json.loads(out)
         text = body["messages"][0]["text"]
         case("fell back to @U07ABC", "@U07ABC" in text, text)
+        case("stderr surfaces 1-of-1 failure summary",
+             "1 of 1" in err and "couldn't be resolved" in err, err)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_resolve_summary_silent_when_all_succeed():
+    """No failures → no failure summary line on stderr."""
+    print("\n[resolve] no summary when all lookups succeed")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        rc, _, err = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C1"}', "--resolve",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "messages": [
+                                  {"text": "hi <@U1>"}]}},
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "user": {
+                                  "profile": {"display_name": "alice"}}}},
+                         ]))
+        case("returns 0", rc == 0)
+        case("no failure summary on stderr",
+             "couldn't be resolved" not in err, err)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_resolve_summary_counts_partial_failures():
+    """Mixed success/failure across users + channels → 'N of M' counts both kinds.
+    All four lookup responses are ok:false, so the parallel prefetch's
+    nondeterministic order is irrelevant — every lookup will fail."""
+    print("\n[resolve] failure summary counts users + channels together")
+    tmp = make_tmp()
+    try:
+        run("auth", "add", "--workspace", "w", "--token", "xoxp-x",
+            env=make_env(tmp, responses=[
+                {"status": 200, "headers": {}, "body":
+                 {"ok": True, "user_id": "U", "user": "u",
+                  "team_id": "T", "team": "Team"}},
+            ]))
+        # Message has two unique users + two unique channels, all unresolvable.
+        rc, _, err = run("call", "conversations.history", "--workspace", "w",
+                         "--params", '{"channel":"C1"}', "--resolve",
+                         env=make_env(tmp, responses=[
+                             {"status": 200, "headers": {},
+                              "body": {"ok": True, "messages": [{"text":
+                                  "hi <@U1> <@U2> <#C9> <#C8>"}]}},
+                             # Four lookup responses, all failures. Order
+                             # doesn't matter because each is identical.
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "user_not_found"}},
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "user_not_found"}},
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "channel_not_found"}},
+                             {"status": 200, "headers": {},
+                              "body": {"ok": False, "error": "channel_not_found"}},
+                         ]))
+        case("returns 0", rc == 0)
+        case("stderr reports 4 of 4 references couldn't be resolved",
+             "4 of 4" in err and "couldn't be resolved" in err, err)
     finally:
         shutil.rmtree(tmp)
 

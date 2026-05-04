@@ -197,22 +197,30 @@ def _encode_params(params: dict) -> bytes:
     return urllib.parse.urlencode(flat).encode("utf-8")
 
 
+import threading
+
+_FIXTURE_LOCK = threading.Lock()
+
+
 def _consume_test_fixture() -> dict | None:
-    """If SLACK_SKILL_TEST_RESPONSES is set, pop the next canned response."""
+    """If SLACK_SKILL_TEST_RESPONSES is set, pop the next canned response.
+    Lock-guarded so the resolver's parallel prefetch sees deterministic FIFO
+    consumption when tests provide >1 response."""
     fp = os.environ.get("SLACK_SKILL_TEST_RESPONSES")
     if not fp:
         return None
-    try:
-        data = json.loads(Path(fp).read_text())
-    except OSError as e:
-        raise TransportError(f"test fixture file unreadable: {e}")
-    except json.JSONDecodeError as e:
-        raise TransportError(f"test fixture file is not valid JSON: {e}")
-    if not data:
-        raise TransportError("test fixture exhausted (no more canned responses)")
-    nxt = data[0]
-    Path(fp).write_text(json.dumps(data[1:]))
-    return nxt
+    with _FIXTURE_LOCK:
+        try:
+            data = json.loads(Path(fp).read_text())
+        except OSError as e:
+            raise TransportError(f"test fixture file unreadable: {e}")
+        except json.JSONDecodeError as e:
+            raise TransportError(f"test fixture file is not valid JSON: {e}")
+        if not data:
+            raise TransportError("test fixture exhausted (no more canned responses)")
+        nxt = data[0]
+        Path(fp).write_text(json.dumps(data[1:]))
+        return nxt
 
 
 def http_post(method: str, params: dict, token: str,
@@ -509,6 +517,7 @@ def paginate(method: str, params: dict, token: str, *,
 
 # ---- entity-ref resolver ----------------------------------------------------
 
+from concurrent.futures import ThreadPoolExecutor
 
 # Slack guarantees these are balanced and contain no nested < or >.
 ENTITY_RE = re.compile(r"<([^<>]+)>")
@@ -517,15 +526,24 @@ ENTITY_RE = re.compile(r"<([^<>]+)>")
 class Resolver:
     """Per-invocation cache for users.info / conversations.info lookups."""
 
-    def __init__(self, token: str, *, debug_log=None):
+    def __init__(self, token: str, *, debug_log=None, max_workers: int = 10):
         self.token = token
         self.debug_log = debug_log
+        self.max_workers = max_workers
         self.users: dict[str, str] = {}     # U-id → display name (or fallback)
         self.channels: dict[str, str] = {}  # C-id → channel name (or fallback)
+        # Lookup-failure tracking. Sets are atomic-add under the GIL, so safe
+        # for the parallel prefetch pass below. Used to surface a "N of M
+        # references couldn't be resolved" summary at the end of cmd_call.
+        self.attempted_users: set[str] = set()
+        self.attempted_channels: set[str] = set()
+        self.failed_users: set[str] = set()
+        self.failed_channels: set[str] = set()
 
     def user_name(self, uid: str) -> str:
         if uid in self.users:
             return self.users[uid]
+        self.attempted_users.add(uid)
         try:
             _s, _h, body = http_post("users.info", {"user": uid}, self.token,
                                       debug_log=self.debug_log)
@@ -538,12 +556,14 @@ class Resolver:
                 return name
         except (TransportError, SlackAPIError):
             pass
+        self.failed_users.add(uid)
         self.users[uid] = uid  # fallback (cached so we don't retry)
         return uid
 
     def channel_name(self, cid: str) -> str:
         if cid in self.channels:
             return self.channels[cid]
+        self.attempted_channels.add(cid)
         try:
             _s, _h, body = http_post("conversations.info", {"channel": cid},
                                       self.token, debug_log=self.debug_log)
@@ -557,8 +577,55 @@ class Resolver:
                 return name
         except (TransportError, SlackAPIError):
             pass
+        self.failed_channels.add(cid)
         self.channels[cid] = cid
         return cid
+
+    def collect_refs(self, obj) -> tuple[set[str], set[str]]:
+        """Walk obj and return unique (user_ids, channel_ids) needing lookup.
+        Refs with explicit |labels are skipped — those use the label as-is."""
+        users: set[str] = set()
+        channels: set[str] = set()
+
+        def walk(node):
+            if isinstance(node, str):
+                for m in ENTITY_RE.finditer(node):
+                    inner = m.group(1)
+                    if "|" in inner:
+                        continue  # label present, no API call needed
+                    if not inner:
+                        continue
+                    head, rest = inner[0], inner[1:]
+                    if head == "@":
+                        users.add(rest)
+                    elif head == "#":
+                        channels.add(rest)
+            elif isinstance(node, list):
+                for x in node:
+                    walk(x)
+            elif isinstance(node, dict):
+                for v in node.values():
+                    walk(v)
+
+        walk(obj)
+        return users, channels
+
+    def prefetch(self, users: set[str], channels: set[str]) -> None:
+        """Pre-populate the cache by resolving IDs in parallel."""
+        if not users and not channels:
+            return
+        workers = min(self.max_workers, max(1, len(users) + len(channels)))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            # Drain map() generators so exceptions surface and futures complete.
+            list(ex.map(self.user_name, users))
+            list(ex.map(self.channel_name, channels))
+
+    def failure_summary(self) -> str | None:
+        nf = len(self.failed_users) + len(self.failed_channels)
+        nt = len(self.attempted_users) + len(self.attempted_channels)
+        if nf == 0:
+            return None
+        return f"{nf} of {nt} references couldn't be resolved"
 
     def expand(self, text: str) -> str:
         def repl(m: re.Match) -> str:
@@ -642,14 +709,21 @@ def cmd_call(args) -> int:
         print(f"--all: {e}", file=sys.stderr)
         return 2
 
+    resolver = None
     if args.resolve and body.get("ok"):
         resolver = Resolver(token, debug_log=debug)
+        users, channels = resolver.collect_refs(body)
+        resolver.prefetch(users, channels)
         body = walk_and_resolve(body, resolver)
 
     print(json.dumps(body, separators=(",", ":")))
     if not body.get("ok", False):
         print(format_slack_error(args.method, name, body), file=sys.stderr)
         return 1
+    if resolver is not None:
+        summary = resolver.failure_summary()
+        if summary:
+            print(summary, file=sys.stderr)
     return 0
 
 
