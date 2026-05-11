@@ -14,6 +14,16 @@ This skill lets you read, write, and react to messages in the user's Slack works
 
 The mental model: when the user says "DM bob saying ...", you are not asking a bot to relay a message — you are sending a message *as the user*, exactly as if they had typed it themselves in the Slack client. Treat write operations with the care that implies.
 
+## Progressive disclosure
+
+This file is the always-loaded core. Load these only when their topic comes up:
+
+- `references/setup.md` — first-time workspace setup, OAuth manifest install, token rotation. Load when the user has no workspaces configured, wants to add another, or `auth test` is failing.
+- `references/patterns.md` — the 11 canonical recipes (resolve IDs, read history, read thread, send message, react, mark read, list channels, list members, search, permalink, multi-workspace fan-out). Load when you need the invocation for a specific operation.
+- `docs/slack-api/CHEATSHEET.md` and the per-namespace files — Slack Web API method reference. Load when you need details on a method not covered by the patterns file.
+
+---
+
 ## When to use this skill
 
 Use this skill any time the user is reading, sending, reacting to, or organizing **Slack messages, channels, DMs, or threads**. Common categories with example phrasings:
@@ -141,232 +151,27 @@ Use `--resolve` whenever the response will be shown to the user. It turns `<@U07
 
 Use `--all` when reading data that may span multiple pages — channel history over a long window, full member lists, full search result sets. Combine with `--limit N` to cap total items so you don't accidentally pull thousands of messages. Without `--all`, you get one page (typically 100 items) and a `response_metadata.next_cursor` you'd otherwise have to paginate manually.
 
-## First-time setup / adding a workspace
-
-If the user wants to use Slack and they have no workspaces configured (or want to add another one), walk them through the following. The whole flow takes about two minutes.
-
-### Step 1 — Check what's already configured
-
-```bash
-python3 scripts/slack.py auth list
-```
-
-If this prints an empty list, or doesn't include the workspace they want, continue to step 2. If the workspace is already there, jump to step 5 to verify it.
-
-### Step 2 — Create the Slack app from a manifest
-
-Tell the user:
-
-1. Visit https://api.slack.com/apps?new_app=1 in a browser.
-2. Click **From an app manifest**.
-3. Pick the workspace they want to integrate (e.g. their work Slack).
-4. When prompted for the manifest, switch the editor tab to **JSON** and paste the contents of `docs/slack-app-manifest.json` from this skill. (Open that file and read it to them, or have them open it themselves.)
-5. Click **Next**, review the scopes, then **Create**.
-6. On the app's **Basic Information** page, click **Install to Workspace**, then **Allow** on the OAuth confirmation screen.
-7. On the **OAuth & Permissions** page, copy the **User OAuth Token** (it starts with `xoxp-`).
-
-The manifest at `docs/slack-app-manifest.json` is preconfigured with the user scopes this skill needs (channel and message reads, chat write, reactions, search, etc.). Don't tell the user to add scopes manually — the manifest does it.
-
-### Step 3 — User pastes the token into chat
-
-Have the user paste the `xoxp-...` token. Treat it as sensitive — do not echo it back to them in plaintext, do not log it.
-
-### Step 4 — Add it to the config
-
-```bash
-python3 scripts/slack.py auth add --workspace work --token xoxp-REDACTED
-```
-
-Pick a short, memorable workspace name (`work`, `personal`, `acme`, etc.). The user will reuse this name for every subsequent invocation.
-
-### Step 5 — Verify
-
-```bash
-python3 scripts/slack.py auth test --workspace work
-```
-
-This calls Slack's `auth.test` endpoint and should return the authenticated user and team. If it returns `invalid_auth`, the token was pasted incorrectly or has been revoked — re-do step 2's last sub-step and try again. If it returns `missing_scope`, the manifest in `docs/slack-app-manifest.json` may be out of sync with what this skill needs — read that file and reinstall.
-
-If the user has more than one Slack workspace they want to use, repeat steps 2–5 for each, with a different `--workspace <name>` per workspace.
-
-## Common patterns
-
-Eleven hot-path patterns. Each one shows the canonical invocation. Real method names, sensible param values; copy and adapt.
-
-### 1. Resolve channel / user names to IDs
-
-Slack's API takes IDs (`C0123ABCD` for channels, `U07ABCDEF` for users), not names. When the user says "post to `#ops`," you need to find the channel ID first.
-
-For users, if you have an email:
-
-```bash
-python3 scripts/slack.py call users.lookupByEmail \
-  --workspace work \
-  --params '{"email":"alice@example.com"}'
-```
-
-For channels, list the user's conversations and filter by name:
-
-```bash
-python3 scripts/slack.py call users.conversations \
-  --workspace work \
-  --params '{"types":"public_channel,private_channel,im,mpim","exclude_archived":true}' \
-  --all
-# Then pick the one whose `name` field equals "ops"
-```
-
-Cache the resulting ID in your scratchpad for the rest of the session — you don't need to re-resolve it on every call.
-
-### 2. Read recent messages from a channel or DM
-
-```bash
-python3 scripts/slack.py call conversations.history \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","limit":50}' \
-  --resolve
-```
-
-Returns the most recent N messages. Add `"oldest":"<unix_ts>"` to bound by time (e.g. messages since this morning). Use `--resolve` so mentions render as names. For DMs, `channel` is the DM channel ID (starts with `D`), which you get from `conversations.open` or `users.conversations`.
-
-### 3. Read a full thread
-
-A thread is rooted on a parent message's `ts`. Once you have it (from `conversations.history`, a permalink, or search), pull the replies:
-
-```bash
-python3 scripts/slack.py call conversations.replies \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","ts":"1714612345.123456"}' \
-  --resolve --all
-```
-
-Use `--all` because long threads can span multiple pages. The first message in the result is the parent; subsequent ones are replies in chronological order.
-
-### 4. Send a message — channel, DM, or thread reply
-
-Channel:
-
-```bash
-python3 scripts/slack.py call chat.postMessage \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","text":"Deploy is starting now."}'
-```
-
-DM (open the IM channel first to get its ID):
-
-```bash
-# Step 1: open the DM channel
-python3 scripts/slack.py call conversations.open \
-  --workspace work \
-  --params '{"users":"U07BOB"}'
-# response includes channel.id, e.g. "D0456XYZ"
-
-# Step 2: send to it
-python3 scripts/slack.py call chat.postMessage \
-  --workspace work \
-  --params '{"channel":"D0456XYZ","text":"Hey, I will be 5 minutes late."}'
-```
-
-Thread reply:
-
-```bash
-python3 scripts/slack.py call chat.postMessage \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","thread_ts":"1714612345.123456","text":"On it."}'
-```
-
-Add `"reply_broadcast":true` if the user wants the reply to also surface in the channel, not just inside the thread.
-
-### 5. React / unreact
-
-`reactions.add` takes the emoji `name` *without* surrounding colons (`thumbsup`, not `:thumbsup:`):
-
-```bash
-python3 scripts/slack.py call reactions.add \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","timestamp":"1714612345.123456","name":"eyes"}'
-```
-
-To remove:
-
-```bash
-python3 scripts/slack.py call reactions.remove \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","timestamp":"1714612345.123456","name":"eyes"}'
-```
-
-### 6. Mark a channel read up to a message
-
-```bash
-python3 scripts/slack.py call conversations.mark \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","ts":"1714612345.123456"}'
-```
-
-The `ts` is the message you want to be the new last-read marker — everything at or before this timestamp will be considered read.
-
-### 7. List the user's channels and DMs
-
-```bash
-python3 scripts/slack.py call users.conversations \
-  --workspace work \
-  --params '{"types":"public_channel,private_channel,im,mpim","exclude_archived":true}' \
-  --all --resolve
-```
-
-`users.conversations` is scoped to the authenticated user (only channels they're in), which is almost always what the user means by "list my channels." Use `conversations.list` only if the user explicitly wants the full workspace channel directory.
-
-### 8. List members of a channel
-
-```bash
-python3 scripts/slack.py call conversations.members \
-  --workspace work \
-  --params '{"channel":"C0123ABCD"}' \
-  --all
-```
-
-Returns user IDs. To turn them into names, either run with `--resolve` or chain a `users.info` per ID. For large channels, prefer `--resolve` — it batches resolution.
-
-### 9. Search across messages
-
-```bash
-python3 scripts/slack.py call search.messages \
-  --workspace work \
-  --params '{"query":"from:@alice deploy","count":20,"sort":"timestamp","sort_dir":"desc"}' \
-  --resolve
-```
-
-Slack's search query syntax supports useful operators:
-
-- `from:@alice` — messages from a specific user
-- `in:#general` or `in:@bob` — restrict to a channel or DM
-- `before:2026-04-01`, `after:2026-04-25`, `on:2026-05-01` — date filters
-- `has:link`, `has:reaction` — message attribute filters
-
-Search is page-based (`page` param), not cursor-based — different pagination model than `conversations.history`. `--all` handles `search.messages` and `search.files` directly (the matches at `messages.matches` / `files.matches` are walked automatically). It does **not** handle `search.all`, which returns both `messages.matches` and `files.matches` and is therefore ambiguous — iterate each namespace separately with `search.messages` or `search.files`.
-
-### 10. Get a permalink for a message
-
-```bash
-python3 scripts/slack.py call chat.getPermalink \
-  --workspace work \
-  --params '{"channel":"C0123ABCD","message_ts":"1714612345.123456"}'
-```
-
-Returns a `permalink` field — a URL that opens the message directly in the Slack client. Note the parameter name is `message_ts`, not `ts`, only on this one method.
-
-### 11. Multi-workspace — same operation across workspaces
-
-There is no built-in multi-workspace fan-out — loop the call yourself, varying `--workspace`:
-
-```bash
-for ws in work personal; do
-  python3 scripts/slack.py call chat.postMessage \
-    --workspace "$ws" \
-    --params '{"channel":"C_STATUS","text":"Heads down for the next hour."}'
-done
-```
-
-The same channel ID typically won't exist in two workspaces, so for cross-workspace posts you usually need to resolve a channel name to an ID inside each workspace first (pattern 1).
+## Common patterns — load `references/patterns.md`
+
+For the canonical invocation of any of these operations, load `references/patterns.md`:
+
+1. Resolve channel / user names to IDs
+2. Read recent messages from a channel or DM
+3. Read a full thread
+4. Send a message — channel, DM, or thread reply
+5. React / unreact
+6. Mark a channel read up to a message
+7. List the user's channels and DMs
+8. List members of a channel
+9. Search across messages
+10. Get a permalink for a message
+11. Multi-workspace fan-out
+
+Don't try to invent the invocation. Load the patterns file when you hit one of these.
+
+## First-time setup
+
+If the user has no workspaces configured (or wants to add another), load `references/setup.md` and walk them through the manifest-based OAuth flow. The whole thing takes about two minutes.
 
 ## API reference discovery
 
@@ -400,9 +205,9 @@ Slack User Tokens act as the user. Treat them and write operations accordingly.
 | Error | What to do |
 |---|---|
 | `missing_scope` | The token doesn't have a scope this method requires. The CLI's stderr hint shows the exact scope. Have the user reinstall the app from the manifest in `docs/slack-app-manifest.json` — the manifest may need updating. |
-| `channel_not_found` | The channel ID is wrong, the channel was archived, or the user isn't in it. Re-resolve via `users.conversations` (pattern 1). Don't guess channel IDs from names. |
+| `channel_not_found` | The channel ID is wrong, the channel was archived, or the user isn't in it. Re-resolve via `users.conversations` (pattern 1 in `references/patterns.md`). Don't guess channel IDs from names. |
 | `not_in_channel` | For public channels, call `conversations.join` first, then retry. For private channels, the user must be invited by a member — the skill cannot self-invite. |
-| `invalid_auth` | The token is bad or no longer accepted. Run `auth test` to confirm, then re-do the OAuth install in the Slack app and `auth add` the new token. |
+| `invalid_auth` | The token is bad or no longer accepted. Run `auth test` to confirm, then re-do the OAuth install (`references/setup.md`) and `auth add` the new token. |
 | `token_revoked` | Same recovery as `invalid_auth`. The user (or a workspace admin) revoked the token. |
 | `account_inactive` | The user's Slack account is suspended or deactivated. Nothing the skill can do — surface this to the user. |
 | `ratelimited` | Slack returned 429. The response includes `retry_after` seconds; wait that long and retry, or narrow the query so it returns less data. The CLI will surface `retry_after` on stderr. |
